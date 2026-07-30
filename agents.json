@@ -1,0 +1,30 @@
+[
+  {
+    "id": "rex",
+    "name": "Rex",
+    "role": "Lead",
+    "color": "#7dd3fc",
+    "homeDesk": "desk-2"
+  },
+  {
+    "id": "nova",
+    "name": "Nova",
+    "role": "Frontend",
+    "color": "#f9a8d4",
+    "homeDesk": "desk-1"
+  },
+  {
+    "id": "byte",
+    "name": "Byte",
+    "role": "Infra",
+    "color": "#86efac",
+    "homeDesk": "desk-3"
+  },
+  {
+    "id": "quill",
+    "name": "Quill",
+    "role": "Reviewer",
+    "color": "#fcd34d",
+    "homeDesk": "desk-4"
+  }
+]
