@@ -330,20 +330,18 @@ function setup() {
 
           a.slotIndex = i;
           a.slotCount = n;
+          // Always retarget walk destination (slots) — never skip the walk
           a.targetX = nx;
           a.targetY = ny;
           setNamePlacement(a, i, n);
 
-          // Already parked (or basically there): snap into the new slot
-          const near =
-            Math.hypot(a.x - base.x, a.y - base.y) < 56 ||
-            Math.hypot(a.x - nx, a.y - ny) < 12;
-          if (a.state !== "walk" || near) {
-            if (a.state !== "walk") {
-              a.x = nx;
-              a.y = ny;
-            }
-            // If walking but already in the cluster, retarget (already set targetX/Y)
+          // Only micro-adjust position if already standing at this station.
+          // Do NOT snap when state is still "break"/"idle" but event will walk
+          // elsewhere — that was teleporting between desks.
+          const alreadyHere = Math.hypot(a.x - base.x, a.y - base.y) < 40;
+          if (alreadyHere && a.state !== "walk") {
+            a.x = nx;
+            a.y = ny;
           }
         });
       }
