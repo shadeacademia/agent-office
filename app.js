@@ -14,7 +14,9 @@ const STATE_LABEL = {
   blocked: "Blocked",
 };
 
-const SPEED = 110; // px per second
+const SPEED = 130; // px per second
+/** Min time (ms) to keep walking toward a desk before a queued leg may start */
+const MIN_LEG_MS = 2200;
 
 async function loadJSON(path) {
   const res = await fetch(path);
@@ -109,6 +111,9 @@ function setup() {
           bubble,
           bubbleText,
           bubbleUntil: 0,
+          /** Live feed can fire phases faster than walk animation — queue legs */
+          eventQueue: [],
+          legStartedAt: 0,
         };
 
         const row = el("div", "roster-row", roster);
@@ -141,12 +146,7 @@ function setup() {
         while (feed.children.length > 40) feed.lastChild.remove();
       }
 
-      function onEvent(raw) {
-        const event = normalizeEvent(raw, deskById) || raw;
-        const agent = agents[event.agentId];
-        if (!agent) return;
-
-        // Resolve desk coordinates if only target id was provided
+      function resolveTargets(event) {
         if (event.target && (event.targetX == null || event.targetY == null)) {
           const desk = deskById[event.target];
           if (desk) {
@@ -154,12 +154,21 @@ function setup() {
             event.targetY = desk.y;
           }
         }
+        return event;
+      }
+
+      /** Apply an event to the agent immediately (no queue). */
+      function applyEventNow(event, { skipFeed = false } = {}) {
+        const agent = agents[event.agentId];
+        if (!agent) return;
+        resolveTargets(event);
 
         if (event.teleport && event.targetX != null) {
           agent.x = event.targetX;
           agent.y = event.targetY;
           agent.node.style.left = `${agent.x}px`;
           agent.node.style.top = `${agent.y}px`;
+          agent.eventQueue = [];
         }
 
         if (event.targetX != null) {
@@ -175,7 +184,6 @@ function setup() {
         } else if (event.teleport) {
           agent.state = event.state;
         } else if (event.state && event.state !== "walk") {
-          // Live feeds may set working states without a walk if already at desk
           if (
             Math.hypot(agent.x - (event.targetX ?? agent.x), agent.y - (event.targetY ?? agent.y)) < 8
           ) {
@@ -183,6 +191,10 @@ function setup() {
           } else {
             agent.state = "walk";
           }
+        }
+
+        if (agent.state === "walk") {
+          agent.legStartedAt = performance.now();
         }
 
         if (event.message) {
@@ -196,7 +208,50 @@ function setup() {
         agent.rosterStatus.dataset.state = labelState;
         agent.node.dataset.state = agent.state;
 
-        if (!event.teleport) pushFeed(event);
+        if (!event.teleport && !skipFeed) pushFeed(event);
+      }
+
+      /**
+       * Live bridge posts phases faster than walk animation.
+       * Queue destination changes while walking so Ollie finishes each desk.
+       */
+      function onEvent(raw) {
+        const event = normalizeEvent(raw, deskById) || raw;
+        const agent = agents[event.agentId];
+        if (!agent) return;
+        resolveTargets(event);
+
+        if (event.teleport) {
+          agent.eventQueue = [];
+          applyEventNow(event);
+          return;
+        }
+
+        const moving =
+          agent.state === "walk" &&
+          Math.hypot(agent.x - agent.targetX, agent.y - agent.targetY) > 6;
+        const newDesk =
+          event.target != null &&
+          (event.targetX !== agent.targetX || event.targetY !== agent.targetY);
+
+        if (moving && newDesk) {
+          agent.eventQueue.push(event);
+          // Show intent in feed immediately; body finishes current leg first
+          pushFeed(event);
+          return;
+        }
+
+        applyEventNow(event);
+      }
+
+      function drainQueue(agent, now) {
+        if (!agent.eventQueue.length) return;
+        if (agent.state === "walk") return;
+        // Brief dwell at desk so Terminal isn't a 1-frame stop
+        if (agent.legStartedAt && now - agent.legStartedAt < MIN_LEG_MS) return;
+        const next = agent.eventQueue.shift();
+        // Already in feed when queued
+        applyEventNow(next, { skipFeed: true });
       }
 
       // Animation loop
@@ -217,12 +272,17 @@ function setup() {
               agent.node.dataset.state = agent.state;
               agent.rosterStatus.textContent = STATE_LABEL[agent.state] || agent.state;
               agent.rosterStatus.dataset.state = agent.state;
+              // Mark arrival time for min dwell before next queued leg
+              agent.legStartedAt = now;
+              drainQueue(agent, now);
             } else {
               const step = SPEED * dt;
               agent.x += (dx / dist) * step;
               agent.y += (dy / dist) * step;
               agent.node.classList.toggle("flip", dx < 0);
             }
+          } else {
+            drainQueue(agent, now);
           }
 
           agent.x = clamp(agent.x, 24, office.width - 24);
