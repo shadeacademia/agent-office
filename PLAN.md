@@ -47,19 +47,24 @@ Replace the generic Frontend/Backend/… labels when implementing layout. Positi
 
 ```json
 {
-  "name": "Grok Works",
-  "width": 960,
-  "height": 540,
+  "name": "Ollie's Office",
+  "width": 540,
+  "height": 960,
+  "bounds": { "yMin": 240, "yMax": 720, "xMin": 64, "xMax": 476 },
   "desks": [
-    { "id": "desk-terminal", "label": "Terminal", "x": 160, "y": 200 },
-    { "id": "desk-research", "label": "Research", "x": 400, "y": 200 },
-    { "id": "desk-compose",  "label": "Compose",  "x": 640, "y": 200 },
-    { "id": "desk-break",    "label": "Break",    "x": 400, "y": 360 }
+    { "id": "desk-terminal", "label": "Terminal", "x": 190, "y": 320 },
+    { "id": "desk-research", "label": "Research", "x": 350, "y": 450 },
+    { "id": "desk-compose",  "label": "Compose",  "x": 190, "y": 580 },
+    { "id": "desk-break",    "label": "Break",    "x": 350, "y": 680 }
   ],
-  "spawn": { "x": 80, "y": 480 },
-  "coffee": { "x": 860, "y": 120 }
+  "spawn": { "x": 120, "y": 700 },
+  "coffee": { "id": "prop-coffee", "x": 420, "y": 300 }
 }
 ```
+
+Portrait floor (9:16-ish) so fit-to-width stays readable on mobile; circuit walks top → bottom.
+
+**Station band:** top ¼ and bottom ¼ of the floor are out of bounds (window / door). Stations live in the middle half only (`y` 240–720 on a 960-tall floor).
 
 | id | Label | Meaning |
 |----|--------|---------|

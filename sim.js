@@ -48,7 +48,7 @@ const AMBIENT = [
   { state: "coding", message: "Stretching context…", desk: "desk-compose" },
 ];
 
-export function createSimulator({ agents, desks, onEvent }) {
+export function createSimulator({ agents, desks, coffee = null, onEvent }) {
   const deskById = Object.fromEntries(desks.map((d) => [d.id, d]));
   const primary =
     agents.find((a) => a.primary) ||
@@ -59,6 +59,8 @@ export function createSimulator({ agents, desks, onEvent }) {
   let circuitTimers = [];
   let ambientTimer = null;
   let jobGeneration = 0;
+  /** When true, auto job circuit will not start until resumeJobsSoon() */
+  let jobsPaused = false;
 
   function emit(agentId, partial) {
     onEvent({
@@ -99,13 +101,14 @@ export function createSimulator({ agents, desks, onEvent }) {
 
   /** Run one full job circuit for the primary agent, then loop. */
   function runCircuit() {
-    if (!primary) return;
+    if (!primary || jobsPaused) return;
     jobGeneration += 1;
     clearCircuitTimers();
 
     let stepIndex = 0;
 
     const runStep = () => {
+      if (jobsPaused) return;
       const step = CIRCUIT[stepIndex];
       if (!step) {
         after(4000, runCircuit);
@@ -122,6 +125,21 @@ export function createSimulator({ agents, desks, onEvent }) {
     };
 
     runStep();
+  }
+
+  /** Cancel pending circuit legs so coffee (or other floor theater) can own the primary. */
+  function pauseJobs() {
+    jobsPaused = true;
+    jobGeneration += 1;
+    clearCircuitTimers();
+  }
+
+  /** After coffee, restart the auto job loop once Ollie is back on break. */
+  function resumeJobsSoon(delayMs = 3500) {
+    jobsPaused = false;
+    after(delayMs, () => {
+      if (!jobsPaused) runCircuit();
+    });
   }
 
   function assignAmbient(agent) {
@@ -167,16 +185,28 @@ export function createSimulator({ agents, desks, onEvent }) {
     ambientTimer = null;
   }
 
-  /** Manual "Run job": restart primary circuit from Terminal. */
+  /**
+   * Legacy ambient nudge (not used by the coffee button).
+   * Primary: restart circuit only when jobs aren't paused.
+   */
   function nudge(agentId) {
     const agent = agents.find((a) => a.id === agentId) || primary;
     if (!agent) return;
     if (agent.id === primary?.id) {
+      if (jobsPaused) return;
       runCircuit();
       return;
     }
     assignAmbient(agent);
   }
 
-  return { start, stop, nudge, primaryId: primary?.id };
+  return {
+    start,
+    stop,
+    nudge,
+    pauseJobs,
+    resumeJobsSoon,
+    primaryId: primary?.id,
+    coffeeId: coffee?.id || "prop-coffee",
+  };
 }

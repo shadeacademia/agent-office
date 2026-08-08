@@ -3,3 +3,7 @@
 *.env.local
 __pycache__/
 *.pyc
+
+# Imagine working copies (not shipped)
+assets/_raw/
+assets/**/_*-check.png

@@ -16,8 +16,12 @@
       </div>
       <div class="topbar-actions">
         <span id="clock"></span>
-        <button type="button" id="btn-nudge" title="Run a mock job circuit for Ollie">
-          Run job
+        <button
+          type="button"
+          id="btn-coffee"
+          title="Ollie can only get coffee while on break"
+        >
+          Get coffee
         </button>
       </div>
     </header>
@@ -25,11 +29,13 @@
     <main class="layout">
       <section class="stage-wrap">
         <div class="stage-label">
-          <span id="office-name">Office</span>
+          <span id="office-name">Ollie's Office</span>
           <span>Live floor</span>
         </div>
         <div class="floor-scroll">
-          <div id="floor" aria-label="Office floor plan"></div>
+          <div class="floor-scale" id="floor-scale">
+            <div id="floor" aria-label="Office floor plan"></div>
+          </div>
         </div>
       </section>
 

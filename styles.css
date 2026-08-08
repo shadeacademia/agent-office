@@ -87,8 +87,13 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Layout */
@@ -115,7 +120,8 @@ button:hover {
   border-radius: 14px;
   padding: 1rem;
   overflow: auto;
-  min-height: 420px;
+  /* Portrait floor (540×960) sets height via fit-to-width scale */
+  min-height: 0;
 }
 
 .stage-label {
@@ -132,40 +138,73 @@ button:hover {
   font-weight: 600;
 }
 
-/* Floor */
+/* Floor — logical size is office.json; .floor-scale fits width via JS */
 .floor-scroll {
-  overflow: auto;
+  overflow: hidden;
   border-radius: 10px;
   border: 1px solid var(--panel-border);
   background: #0d1426;
+  width: 100%;
+}
+
+.floor-scale {
+  position: relative;
+  transform-origin: top left;
+  /* width/height set by JS to scaled layout box */
 }
 
 #floor {
   position: relative;
-  margin: 0 auto;
-  background:
-    linear-gradient(var(--floor-line) 1px, transparent 1px) 0 0 / 40px 40px,
-    linear-gradient(90deg, var(--floor-line) 1px, transparent 1px) 0 0 / 40px 40px,
-    var(--floor);
-  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.35);
+  /* width/height set from office.json in JS */
+  /* Pixel night-office room (walls, window, lamps); fallback = carpet tile */
+  background-color: #12182c;
+  background-image: url("./assets/scene/room.png");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.45);
+}
+
+/* When room art missing, CSS can still show a tiled carpet */
+#floor.floor-fallback {
+  background-image:
+    url("./assets/scene/carpet-tile.png");
+  background-size: 64px 64px;
+  background-repeat: repeat;
 }
 
 /* Furniture */
 .desk {
   position: absolute;
-  width: 88px;
-  height: 64px;
+  width: 96px;
+  height: 80px;
   transform: translate(-50%, -50%);
   z-index: 1;
+  pointer-events: none;
 }
 
+.desk-sprite {
+  display: block;
+  width: 96px;
+  height: 80px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.45));
+}
+
+/* CSS fallback when no sprite (or while loading) */
 .desk-surface {
   width: 88px;
   height: 40px;
+  margin: 12px auto 0;
   background: linear-gradient(180deg, #3d4f73, #2a3856);
-  border: 1px solid #4b608a;
-  border-radius: 6px;
+  border: 2px solid #4b608a;
+  border-radius: 2px;
   box-shadow: 0 6px 0 #1a243a;
+  image-rendering: pixelated;
 }
 
 .desk-chair {
@@ -173,74 +212,130 @@ button:hover {
   height: 22px;
   margin: 6px auto 0;
   background: #24344f;
-  border: 1px solid #3a4d6e;
-  border-radius: 6px 6px 4px 4px;
+  border: 2px solid #3a4d6e;
+  border-radius: 2px;
+}
+
+.desk.has-sprite .desk-surface,
+.desk.has-sprite .desk-chair {
+  display: none;
 }
 
 .desk-label {
   position: absolute;
-  top: -18px;
+  top: -4px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.65rem;
-  color: var(--muted);
+  font-size: 0.6rem;
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+  color: #a8b8d8;
   white-space: nowrap;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  background: rgba(8, 12, 24, 0.82);
+  padding: 1px 6px;
+  border: 1px solid var(--panel-border);
+  border-radius: 2px;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .prop {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 1.4rem;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
   z-index: 1;
+  pointer-events: none;
 }
 
-/* Agents */
+.prop-sprite {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
+.prop.coffee:not(.has-sprite) {
+  font-size: 1.4rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+
+/* Agents — pixel sprites (fallback = colored initial circle) */
 .agent {
   position: absolute;
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   transform: translate(-50%, -50%);
   z-index: 5;
   transition: filter 0.2s;
+  pointer-events: none;
 }
 
 .agent-body {
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.4));
+}
+
+.agent-body.has-sprite {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.agent-body-fallback {
   border-radius: 50%;
   background: radial-gradient(circle at 30% 28%, #fff8, transparent 40%),
     var(--color);
   border: 2px solid rgba(255, 255, 255, 0.35);
-  display: grid;
-  place-items: center;
   font-weight: 700;
   font-size: 0.9rem;
   color: #0b1020;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
+.agent-sprite {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  display: block;
+}
+
 .agent.working .agent-body {
   animation: bob 0.45s ease-in-out infinite alternate;
 }
 
+.agent.walking .agent-body {
+  animation: bob 0.28s ease-in-out infinite alternate;
+}
+
 .agent.blocked .agent-body {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 70%, transparent);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--danger) 80%, transparent))
+    drop-shadow(0 3px 0 rgba(0, 0, 0, 0.4));
 }
 
 .agent.break .agent-body {
-  filter: saturate(1.2);
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.4)) saturate(1.1);
 }
 
-.agent.flip .agent-body {
+/* Flip sprite only so bob animation (on body) still works */
+.agent.flip .agent-sprite {
+  transform: scaleX(-1);
+}
+
+.agent.flip .agent-body-fallback {
   transform: scaleX(-1);
 }
 
 .agent-name {
   position: absolute;
-  top: 38px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
   font-size: 0.65rem;
@@ -254,7 +349,7 @@ button:hover {
 
 .bubble {
   position: absolute;
-  bottom: 44px;
+  bottom: 52px;
   left: 50%;
   transform: translateX(-50%);
   background: #f8fafc;

@@ -14,9 +14,35 @@ const STATE_LABEL = {
   blocked: "Blocked",
 };
 
+/** Map runtime state → sprite stem under assets/agents/{id}-{stem}.png */
+const STATE_SPRITE = {
+  idle: "idle",
+  walk: "walk",
+  coding: "work",
+  review: "review",
+  break: "break",
+  blocked: "blocked",
+};
+
 const SPEED = 130; // px per second
 /** Min time (ms) to keep walking toward a desk before a queued leg may start */
 const MIN_LEG_MS = 2200;
+/** Dwell at coffee machine before walking back to break */
+const COFFEE_DWELL_MS = 2500;
+
+function spriteUrl(agentId, state) {
+  const stem = STATE_SPRITE[state] || STATE_SPRITE.idle;
+  return `./assets/agents/${agentId}-${stem}.png`;
+}
+
+function setAgentSprite(agent, state) {
+  if (!agent?.sprite) return;
+  const next = state || agent.state || "idle";
+  const url = spriteUrl(agent.id, next);
+  if (agent.spriteSrc === url) return;
+  agent.spriteSrc = url;
+  agent.sprite.src = url;
+}
 
 async function loadJSON(path) {
   const res = await fetch(path);
@@ -57,9 +83,53 @@ function setup() {
       floor.style.height = `${office.height}px`;
       document.getElementById("office-name").textContent = office.name;
 
-      const deskById = Object.fromEntries(office.desks.map((d) => [d.id, d]));
+      // Scene backdrop (room.png). Fallback to tiled carpet if missing.
+      const roomSrc = office.scene || "./assets/scene/room.png";
+      const probe = new Image();
+      probe.onload = () => floor.classList.remove("floor-fallback");
+      probe.onerror = () => floor.classList.add("floor-fallback");
+      probe.src = roomSrc;
 
-      // Desks
+      const floorScale = document.getElementById("floor-scale");
+      const floorScroll = document.querySelector(".floor-scroll");
+
+      /** Fit the logical floor to the stage width (no horizontal scroll / clip). */
+      function fitFloorToWidth() {
+        if (!floorScale || !floorScroll) return;
+        const pad = 0;
+        const avail = Math.max(120, floorScroll.clientWidth - pad);
+        const scale = avail / office.width;
+        floorScale.style.width = `${office.width * scale}px`;
+        floorScale.style.height = `${office.height * scale}px`;
+        floor.style.transform = `scale(${scale})`;
+        floor.style.transformOrigin = "top left";
+      }
+
+      fitFloorToWidth();
+      window.addEventListener("resize", fitFloorToWidth);
+      // Re-fit after layout settles (fonts / side panel)
+      requestAnimationFrame(fitFloorToWidth);
+      if (typeof ResizeObserver !== "undefined" && floorScroll) {
+        new ResizeObserver(fitFloorToWidth).observe(floorScroll);
+      }
+
+      const deskById = Object.fromEntries(office.desks.map((d) => [d.id, d]));
+      /** Desks + props (coffee) for event target resolution */
+      const targetById = { ...deskById };
+      if (office.coffee) {
+        const cid = office.coffee.id || "prop-coffee";
+        office.coffee.id = cid;
+        targetById[cid] = office.coffee;
+      }
+
+      const primaryDef =
+        agentsDef.find((a) => a.primary) ||
+        agentsDef.find((a) => a.id === "ollie") ||
+        agentsDef[0];
+
+      const coffeeBtn = document.getElementById("btn-coffee");
+
+      // Desks (pixel sprites when present under assets/furniture/)
       for (const desk of office.desks) {
         const d = el("div", "desk", floor);
         d.style.left = `${desk.x}px`;
@@ -67,8 +137,19 @@ function setup() {
         d.dataset.id = desk.id;
         const label = el("span", "desk-label", d);
         label.textContent = desk.label;
-        el("div", "desk-surface", d);
-        el("div", "desk-chair", d);
+
+        const spritePath =
+          desk.sprite || `./assets/furniture/${desk.id}.png`;
+        const img = el("img", "desk-sprite", d);
+        img.alt = desk.label;
+        img.draggable = false;
+        img.src = spritePath;
+        img.addEventListener("load", () => d.classList.add("has-sprite"));
+        img.addEventListener("error", () => {
+          img.remove();
+          el("div", "desk-surface", d);
+          el("div", "desk-chair", d);
+        });
       }
 
       // Coffee corner
@@ -77,20 +158,45 @@ function setup() {
         c.style.left = `${office.coffee.x}px`;
         c.style.top = `${office.coffee.y}px`;
         c.title = "Coffee";
-        c.textContent = "☕";
+        const coffeeSrc =
+          office.coffee.sprite || "./assets/furniture/prop-coffee.png";
+        const img = el("img", "prop-sprite", c);
+        img.alt = "Coffee";
+        img.draggable = false;
+        img.src = coffeeSrc;
+        img.addEventListener("load", () => c.classList.add("has-sprite"));
+        img.addEventListener("error", () => {
+          img.remove();
+          c.textContent = "☕";
+        });
       }
 
       // Agent runtime state
       const agents = {};
       for (const def of agentsDef) {
-        const spawn = office.spawn || { x: 80, y: 480 };
+        const spawn = office.spawn || {
+          x: Math.round(office.width * 0.18),
+          y: Math.round(office.height * 0.94),
+        };
         const node = el("div", "agent", floor);
         node.style.setProperty("--color", def.color);
         node.style.left = `${spawn.x}px`;
         node.style.top = `${spawn.y}px`;
 
         const body = el("div", "agent-body", node);
-        body.textContent = def.name.slice(0, 1);
+        const sprite = el("img", "agent-sprite", body);
+        sprite.alt = def.name;
+        sprite.draggable = false;
+        sprite.src = spriteUrl(def.id, "idle");
+        sprite.addEventListener("error", () => {
+          // Fallback: colored initial if sprites missing
+          if (body.dataset.fallback) return;
+          body.dataset.fallback = "1";
+          sprite.remove();
+          body.textContent = def.name.slice(0, 1);
+          body.classList.add("agent-body-fallback");
+        });
+        sprite.addEventListener("load", () => body.classList.add("has-sprite"));
 
         const nameTag = el("div", "agent-name", node);
         nameTag.textContent = def.name;
@@ -108,13 +214,20 @@ function setup() {
           targetY: spawn.y,
           nextState: "idle",
           node,
+          body,
+          sprite,
+          spriteSrc: sprite.src,
           bubble,
           bubbleText,
           bubbleUntil: 0,
           /** Live feed can fire phases faster than walk animation — queue legs */
           eventQueue: [],
           legStartedAt: 0,
+          /** null | "to-machine" | "at-machine" | "to-break" */
+          coffeePhase: null,
+          coffeeUntil: 0,
         };
+        setAgentSprite(agents[def.id], "idle");
 
         const row = el("div", "roster-row", roster);
         row.dataset.agent = def.id;
@@ -148,13 +261,116 @@ function setup() {
 
       function resolveTargets(event) {
         if (event.target && (event.targetX == null || event.targetY == null)) {
-          const desk = deskById[event.target];
-          if (desk) {
-            event.targetX = desk.x;
-            event.targetY = desk.y;
+          const point = targetById[event.target];
+          if (point) {
+            event.targetX = point.x;
+            event.targetY = point.y;
           }
         }
         return event;
+      }
+
+      function getPrimaryAgent() {
+        if (!primaryDef) return null;
+        return agents[primaryDef.id] || null;
+      }
+
+      /** Strict: only while on break and not already on a coffee run. */
+      function canGetCoffee(agent) {
+        if (!agent || !office.coffee) return false;
+        if (agent.coffeePhase) return false;
+        if (agent.state !== "break") return false;
+        return true;
+      }
+
+      function updateCoffeeButton() {
+        if (!coffeeBtn) return;
+        const agent = getPrimaryAgent();
+        const ok = canGetCoffee(agent);
+        coffeeBtn.disabled = !ok;
+        if (!agent) {
+          coffeeBtn.title = "No primary agent";
+        } else if (agent.coffeePhase) {
+          coffeeBtn.title = "Already on a coffee run";
+        } else if (agent.state !== "break") {
+          coffeeBtn.title = "Only available while Ollie is on break";
+        } else {
+          coffeeBtn.title = "Send Ollie to the coffee machine";
+        }
+      }
+
+      /**
+       * Local floor theater (sim + live). Does not POST.
+       * Pauses mock job circuit so auto jobs don't yank Ollie mid-mug.
+       */
+      function startCoffeeRun() {
+        const agent = getPrimaryAgent();
+        if (!canGetCoffee(agent)) {
+          updateCoffeeButton();
+          return;
+        }
+        const coffee = office.coffee;
+        agent.eventQueue = [];
+        agent.coffeePhase = "to-machine";
+        agent.coffeeUntil = 0;
+        if (sim) sim.pauseJobs();
+
+        onEvent({
+          ts: Date.now(),
+          agentId: agent.id,
+          type: "status",
+          state: "walk",
+          message: "Coffee run",
+          target: coffee.id,
+          targetX: coffee.x,
+          targetY: coffee.y,
+          nextState: "break",
+          coffeeLeg: true,
+        });
+        updateCoffeeButton();
+      }
+
+      function tickCoffee(agent, now) {
+        if (!agent.coffeePhase || !office.coffee) return;
+
+        if (agent.coffeePhase === "to-machine" && agent.state === "break") {
+          agent.coffeePhase = "at-machine";
+          agent.coffeeUntil = now + COFFEE_DWELL_MS;
+          agent.bubbleText.textContent = "Topping up…";
+          agent.bubble.classList.remove("hidden");
+          agent.bubbleUntil = now + COFFEE_DWELL_MS;
+          return;
+        }
+
+        if (
+          agent.coffeePhase === "at-machine" &&
+          agent.state === "break" &&
+          now >= agent.coffeeUntil
+        ) {
+          agent.coffeePhase = "to-break";
+          const home =
+            deskById[agent.homeDesk] || deskById["desk-break"];
+          onEvent({
+            ts: Date.now(),
+            agentId: agent.id,
+            type: "status",
+            state: "walk",
+            message: "Back to the lounge",
+            target: home?.id || agent.homeDesk,
+            targetX: home?.x,
+            targetY: home?.y,
+            nextState: "break",
+            coffeeLeg: true,
+          });
+          return;
+        }
+
+        if (agent.coffeePhase === "to-break" && agent.state === "break") {
+          agent.coffeePhase = null;
+          agent.coffeeUntil = 0;
+          if (sim) sim.resumeJobsSoon(3000);
+          updateCoffeeButton();
+        }
       }
 
       /** Apply an event to the agent immediately (no queue). */
@@ -162,6 +378,22 @@ function setup() {
         const agent = agents[event.agentId];
         if (!agent) return;
         resolveTargets(event);
+
+        // Non-coffee events cancel an in-progress coffee run (e.g. live job)
+        if (agent.coffeePhase && !event.coffeeLeg && !event.teleport) {
+          const coffeeId = office.coffee?.id;
+          const isCoffeeTarget = event.target === coffeeId;
+          const isHomeTarget =
+            event.target === agent.homeDesk || event.target === "desk-break";
+          if (!isCoffeeTarget && !(agent.coffeePhase === "to-break" && isHomeTarget)) {
+            agent.coffeePhase = null;
+            agent.coffeeUntil = 0;
+            if (sim) {
+              // Live/external took over — let jobs run again if we had paused
+              sim.resumeJobsSoon(500);
+            }
+          }
+        }
 
         if (event.teleport && event.targetX != null) {
           agent.x = event.targetX;
@@ -207,6 +439,8 @@ function setup() {
         agent.rosterStatus.textContent = STATE_LABEL[labelState] || labelState;
         agent.rosterStatus.dataset.state = labelState;
         agent.node.dataset.state = agent.state;
+        setAgentSprite(agent, agent.state);
+        updateCoffeeButton();
 
         if (!event.teleport && !skipFeed) pushFeed(event);
       }
@@ -272,6 +506,7 @@ function setup() {
               agent.node.dataset.state = agent.state;
               agent.rosterStatus.textContent = STATE_LABEL[agent.state] || agent.state;
               agent.rosterStatus.dataset.state = agent.state;
+              setAgentSprite(agent, agent.state);
               // Mark arrival time for min dwell before next queued leg
               agent.legStartedAt = now;
               drainQueue(agent, now);
@@ -279,14 +514,25 @@ function setup() {
               const step = SPEED * dt;
               agent.x += (dx / dist) * step;
               agent.y += (dy / dist) * step;
-              agent.node.classList.toggle("flip", dx < 0);
+              // Prefer facing left/right; slight bias when mostly vertical
+              if (Math.abs(dx) > 2) agent.node.classList.toggle("flip", dx < 0);
+              setAgentSprite(agent, "walk");
             }
           } else {
             drainQueue(agent, now);
           }
 
-          agent.x = clamp(agent.x, 24, office.width - 24);
-          agent.y = clamp(agent.y, 40, office.height - 24);
+          // Coffee legs advance on arrival / dwell (same frame as walk completes)
+          tickCoffee(agent, now);
+
+          // Stay in the playable band (middle half: top/bottom ¼ = window/door)
+          const b = office.bounds || {};
+          const xMin = b.xMin ?? 48;
+          const xMax = b.xMax ?? office.width - 48;
+          const yMin = b.yMin ?? Math.round(office.height * 0.25);
+          const yMax = b.yMax ?? Math.round(office.height * 0.75);
+          agent.x = clamp(agent.x, xMin, xMax);
+          agent.y = clamp(agent.y, yMin, yMax);
           agent.node.style.left = `${agent.x}px`;
           agent.node.style.top = `${agent.y}px`;
 
@@ -301,8 +547,10 @@ function setup() {
           );
           agent.node.classList.toggle("blocked", agent.state === "blocked");
           agent.node.classList.toggle("break", agent.state === "break");
+          agent.node.classList.toggle("walking", agent.state === "walk");
         }
 
+        updateCoffeeButton();
         clock.textContent = new Date().toLocaleTimeString();
         requestAnimationFrame(frame);
       }
@@ -349,42 +597,22 @@ function setup() {
         sim = createSimulator({
           agents: agentsDef,
           desks: office.desks,
+          coffee: office.coffee,
           onEvent,
         });
         sim.start();
       }
 
-      const btn = document.getElementById("btn-nudge");
-      btn?.addEventListener("click", () => {
-        if (sim) {
-          sim.nudge(sim.primaryId);
-          return;
-        }
-        // Live mode: local preview only (does not POST — bridge owns writes)
-        const primary =
-          agentsDef.find((a) => a.primary) ||
-          agentsDef.find((a) => a.id === "ollie") ||
-          agentsDef[0];
-        if (!primary) return;
-        const desk = deskById["desk-terminal"];
-        onEvent({
-          ts: Date.now(),
-          agentId: primary.id,
-          type: "status",
-          state: "walk",
-          message: "Got a prompt (local preview)",
-          target: "desk-terminal",
-          targetX: desk?.x,
-          targetY: desk?.y,
-          nextState: "coding",
-        });
-      });
+      coffeeBtn?.addEventListener("click", () => startCoffeeRun());
+      updateCoffeeButton();
 
       window.__office = {
         onEvent,
         agents,
         office,
         feedMode,
+        startCoffeeRun,
+        canGetCoffee: () => canGetCoffee(getPrimaryAgent()),
         stop: () => feedHandle?.stop(),
       };
     }
