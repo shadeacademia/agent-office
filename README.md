@@ -82,6 +82,30 @@ Custom domain: `office.shadeacademia.net` → CNAME `agent-office-web.pages.dev`
 | `agents.json` | Characters (Ollie, Nova, Byte) |
 | `scripts/` | `post-status.sh`, `demo-circuit.sh` |
 
-## Next (Session C)
+## Local bridge (Session C)
 
-Bridge from Ollama / Open WebUI / Telegram → `POST /api/events` with phase only; chat stays private.
+Public site only gets **phase** lines. Full answers stay in the terminal, Open WebUI, or Telegram.
+
+### CLI job (Ollama → office circuit)
+
+```bash
+cd agent-office
+# uses .local/ingest_token automatically
+python3 bridge/run_job.py "Summarize what a reverse proxy is in one sentence."
+python3 bridge/run_job.py --research "Who is the mayor of Melbourne?"  # visits Research desk
+python3 bridge/office_status.py break   # single phase
+```
+
+### Telegram → office
+
+The running user service `telegram-openwebui-bridge` loads `bridge/office_status.py` and posts:
+
+| When | Public phase |
+|------|----------------|
+| New allowed chat message | Got a prompt (Terminal) |
+| Local web search | Researching… |
+| Before model reply | Writing a reply… |
+| After Telegram send | Replied — see chat → On break |
+| Model error | Stuck → On break |
+
+Disable: `OFFICE_STATUS=0` on the service. Token is read from `agent-office/.local/ingest_token` (not from the bot).
