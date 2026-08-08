@@ -1,14 +1,13 @@
 /**
  * Floor theater — pure frontend (same event shape as the live bridge).
  *
- * Default: **idle mode** — ambient agents wander; primary (Ollie) hangs out
- * on break / coffee without faking a real job circuit.
+ * Default: **idle mode** — ambient agents (Nova/Byte) wander; primary (Ollie)
+ * stays on break until a real live job or the Get coffee button. No auto coffee.
  *
  * Opt-in: **demo circuit** (`demo: true` / `?demo=1` / `?sim=1`) runs the
  * Terminal → Research → Compose → Break loop for show-and-tell.
  *
- * Live feed can run alongside idle: real job events pause primary idle
- * so the status board never invents "Got a prompt" while the bridge is quiet.
+ * Live feed can run alongside idle: real job events move Ollie; ambient keeps going.
  */
 
 /** Public status lines only — never full LLM replies. */
@@ -45,15 +44,7 @@ const DEMO_CIRCUIT = [
   },
 ];
 
-/** Soft downtime for the primary — no fake job phases. */
-const PRIMARY_IDLE = [
-  { state: "break", message: "On break", desk: "desk-break", weight: 3 },
-  { state: "break", message: "Coffee run", desk: "prop-coffee", weight: 2 },
-  { state: "idle", message: "Standing by", desk: "desk-break", weight: 2 },
-  { state: "break", message: "Stretching…", desk: "desk-compose", weight: 1 },
-];
-
-/** Ambient cast (Nova / Byte). */
+/** Ambient cast (Nova / Byte) — Ollie does not use this list. */
 const AMBIENT = [
   { state: "coding", message: "Tidying notes", desk: "desk-terminal", weight: 2 },
   { state: "review", message: "Skimming bookmarks", desk: "desk-research", weight: 2 },
@@ -103,9 +94,8 @@ export function createSimulator({
 
   let circuitTimers = [];
   let ambientTimer = null;
-  let primaryIdleTimer = null;
   let jobGeneration = 0;
-  /** Demo circuit / primary idle paused (coffee button or live job). */
+  /** Demo circuit paused (coffee button or live job). */
   let primaryPaused = false;
   let primaryControlled = controlPrimary;
 
@@ -249,9 +239,8 @@ export function createSimulator({
     startAmbient();
     if (demo) {
       setTimeout(() => runDemoCircuit(), 1200);
-    } else if (primaryControlled) {
-      startPrimaryIdle();
     }
+    // else: Ollie stays on break (parked above); coffee is button-only
   }
 
   function stop() {
@@ -259,8 +248,6 @@ export function createSimulator({
     clearCircuitTimers();
     if (ambientTimer) clearInterval(ambientTimer);
     ambientTimer = null;
-    if (primaryIdleTimer) clearInterval(primaryIdleTimer);
-    primaryIdleTimer = null;
   }
 
   /** Pause primary (coffee button or live job owns Ollie). Ambient keeps going. */
@@ -271,8 +258,8 @@ export function createSimulator({
   }
 
   /**
-   * After coffee / live job ends: resume demo circuit or primary idle.
-   * Ambient was never stopped.
+   * After coffee / live job ends: resume demo circuit if active.
+   * Otherwise Ollie remains on break until the next real job or coffee click.
    */
   function resumeJobsSoon(delayMs = 3500) {
     primaryPaused = false;
@@ -280,14 +267,10 @@ export function createSimulator({
       after(delayMs, () => {
         if (!primaryPaused) runDemoCircuit();
       });
-    } else if (primaryControlled) {
-      after(delayMs, () => {
-        if (!primaryPaused) assignPrimaryIdle();
-      });
     }
   }
 
-  /** Live bridge took over primary — stop inventing Ollie idle moves. */
+  /** Live bridge took over primary — don't start demo while busy. */
   function setPrimaryControlled(on) {
     primaryControlled = Boolean(on);
     if (!primaryControlled) {
@@ -296,7 +279,6 @@ export function createSimulator({
       clearCircuitTimers();
     } else {
       primaryPaused = false;
-      if (!demo) startPrimaryIdle();
     }
   }
 
@@ -307,13 +289,11 @@ export function createSimulator({
     clearCircuitTimers();
   }
 
-  /** Live primary returned to break — soft idle may resume. */
-  function notifyLiveIdle(delayMs = 8000) {
+  /** Live primary returned to break — stay put (no auto wander). */
+  function notifyLiveIdle(_delayMs = 8000) {
     primaryPaused = false;
     if (demo || !primaryControlled) return;
-    after(delayMs, () => {
-      if (!primaryPaused) assignPrimaryIdle();
-    });
+    // Intentionally do not move Ollie; coffee is manual only.
   }
 
   function nudge(agentId) {
@@ -322,7 +302,7 @@ export function createSimulator({
     if (agent.id === primary?.id) {
       if (primaryPaused) return;
       if (demo) runDemoCircuit();
-      else assignPrimaryIdle();
+      else parkPrimaryOnBreak({ message: "On break" });
       return;
     }
     assignAmbient(agent);
