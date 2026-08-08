@@ -251,6 +251,7 @@ function setup() {
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
+          hour12: false,
         });
         item.innerHTML = `<span class="feed-time">${time}</span>
           <span class="feed-who" style="color:${agent.color}">${agent.name}</span>
@@ -551,7 +552,12 @@ function setup() {
         }
 
         updateCoffeeButton();
-        clock.textContent = new Date().toLocaleTimeString();
+        clock.textContent = new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
