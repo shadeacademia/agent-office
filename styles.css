@@ -335,16 +335,45 @@ button:disabled {
 
 .agent-name {
   position: absolute;
-  top: 48px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: var(--text);
-  background: rgba(8, 12, 24, 0.75);
+  background: rgba(8, 12, 24, 0.82);
   padding: 1px 6px;
   border-radius: 999px;
   white-space: nowrap;
   border: 1px solid var(--panel-border);
+  z-index: 6;
+  pointer-events: none;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Default + slot placements (avoid stacked labels at one desk) */
+.agent-name.name-below {
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.agent-name.name-above {
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.agent-name.name-side-left {
+  top: 16px;
+  left: auto;
+  right: calc(100% + 2px);
+  transform: none;
+}
+
+.agent-name.name-side-right {
+  top: 16px;
+  left: calc(100% + 2px);
+  right: auto;
+  transform: none;
 }
 
 .bubble {

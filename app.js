@@ -29,6 +29,10 @@ const SPEED = 130; // px per second
 const MIN_LEG_MS = 2200;
 /** Dwell at coffee machine before walking back to break */
 const COFFEE_DWELL_MS = 2500;
+/** Horizontal gap between agents sharing a station */
+const SLOT_SPREAD_X = 24;
+/** Extra vertical nudge so sprites/names don’t fully stack */
+const SLOT_SPREAD_Y = 8;
 
 function spriteUrl(agentId, state) {
   const stem = STATE_SPRITE[state] || STATE_SPRITE.idle;
@@ -201,7 +205,7 @@ function setup() {
         });
         sprite.addEventListener("load", () => body.classList.add("has-sprite"));
 
-        const nameTag = el("div", "agent-name", node);
+        const nameTag = el("div", "agent-name name-below", node);
         nameTag.textContent = def.name;
 
         const bubble = el("div", "bubble hidden", node);
@@ -220,6 +224,7 @@ function setup() {
           body,
           sprite,
           spriteSrc: sprite.src,
+          nameTag,
           bubble,
           bubbleText,
           bubbleUntil: 0,
@@ -229,6 +234,10 @@ function setup() {
           /** null | "to-machine" | "at-machine" | "to-break" */
           coffeePhase: null,
           coffeeUntil: 0,
+          /** Desk/prop id agents currently claim (for side-by-side slots) */
+          stationId: null,
+          slotIndex: 0,
+          slotCount: 1,
         };
         setAgentSprite(agents[def.id], "idle");
 
@@ -272,6 +281,71 @@ function setup() {
           }
         }
         return event;
+      }
+
+      /** Stagger name tags so labels don’t sit on top of each other at a desk. */
+      function setNamePlacement(agent, slotIndex, slotCount) {
+        if (!agent.nameTag) return;
+        const tag = agent.nameTag;
+        tag.classList.remove(
+          "name-below",
+          "name-above",
+          "name-side-left",
+          "name-side-right"
+        );
+        if (slotCount <= 1) {
+          tag.classList.add("name-below");
+        } else if (slotIndex === 0) {
+          tag.classList.add("name-below");
+        } else if (slotIndex === 1) {
+          tag.classList.add("name-above");
+        } else {
+          tag.classList.add(slotIndex % 2 ? "name-side-right" : "name-side-left");
+        }
+      }
+
+      /**
+       * Side-by-side slots at a shared station so one agent isn’t fully hidden.
+       * Stable order by agent id.
+       */
+      function restackStation(stationId) {
+        if (!stationId) return;
+        const base = targetById[stationId];
+        if (!base) return;
+
+        const group = Object.values(agents)
+          .filter((a) => a.stationId === stationId)
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+        const n = group.length;
+        if (!n) return;
+
+        group.forEach((a, i) => {
+          const ox = n === 1 ? 0 : (i - (n - 1) / 2) * SLOT_SPREAD_X;
+          const oy =
+            n === 1
+              ? 0
+              : (i - (n - 1) / 2) * (SLOT_SPREAD_Y * 0.35) + (i % 2 === 1 ? 6 : 0);
+          const nx = base.x + ox;
+          const ny = base.y + oy;
+
+          a.slotIndex = i;
+          a.slotCount = n;
+          a.targetX = nx;
+          a.targetY = ny;
+          setNamePlacement(a, i, n);
+
+          // Already parked (or basically there): snap into the new slot
+          const near =
+            Math.hypot(a.x - base.x, a.y - base.y) < 56 ||
+            Math.hypot(a.x - nx, a.y - ny) < 12;
+          if (a.state !== "walk" || near) {
+            if (a.state !== "walk") {
+              a.x = nx;
+              a.y = ny;
+            }
+            // If walking but already in the cluster, retarget (already set targetX/Y)
+          }
+        });
       }
 
       function getPrimaryAgent() {
@@ -399,17 +473,29 @@ function setup() {
           }
         }
 
-        if (event.teleport && event.targetX != null) {
-          agent.x = event.targetX;
-          agent.y = event.targetY;
-          agent.node.style.left = `${agent.x}px`;
-          agent.node.style.top = `${agent.y}px`;
-          agent.eventQueue = [];
+        const prevStation = agent.stationId;
+        if (event.target) {
+          agent.stationId = event.target;
         }
 
+        // Base destination, then slot-restack if several agents share the station
         if (event.targetX != null) {
           agent.targetX = event.targetX;
           agent.targetY = event.targetY;
+        }
+        if (prevStation && prevStation !== agent.stationId) {
+          restackStation(prevStation);
+        }
+        if (agent.stationId) {
+          restackStation(agent.stationId);
+        }
+
+        if (event.teleport && agent.targetX != null) {
+          agent.x = agent.targetX;
+          agent.y = agent.targetY;
+          agent.node.style.left = `${agent.x}px`;
+          agent.node.style.top = `${agent.y}px`;
+          agent.eventQueue = [];
         }
 
         agent.message = event.message || agent.message;
@@ -421,7 +507,10 @@ function setup() {
           agent.state = event.state;
         } else if (event.state && event.state !== "walk") {
           if (
-            Math.hypot(agent.x - (event.targetX ?? agent.x), agent.y - (event.targetY ?? agent.y)) < 8
+            Math.hypot(
+              agent.x - (agent.targetX ?? agent.x),
+              agent.y - (agent.targetY ?? agent.y)
+            ) < 8
           ) {
             agent.state = event.state;
           } else {
@@ -468,9 +557,9 @@ function setup() {
         const moving =
           agent.state === "walk" &&
           Math.hypot(agent.x - agent.targetX, agent.y - agent.targetY) > 6;
+        // Compare stations, not slotted coords (slots shift targetX/Y)
         const newDesk =
-          event.target != null &&
-          (event.targetX !== agent.targetX || event.targetY !== agent.targetY);
+          event.target != null && event.target !== agent.stationId;
 
         if (moving && newDesk) {
           agent.eventQueue.push(event);
@@ -539,6 +628,8 @@ function setup() {
           agent.y = clamp(agent.y, yMin, yMax);
           agent.node.style.left = `${agent.x}px`;
           agent.node.style.top = `${agent.y}px`;
+          // Painter’s algorithm: lower on floor draws above
+          agent.node.style.zIndex = String(10 + Math.floor(agent.y));
 
           if (agent.bubbleUntil && now > agent.bubbleUntil) {
             agent.bubble.classList.add("hidden");
