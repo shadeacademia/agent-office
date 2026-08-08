@@ -156,8 +156,8 @@ Open WebUI / Telegram  ←→  Ollama (home)
 | Session | Scope |
 |---------|--------|
 | ~~D~~ | ~~Domain~~ **done** (`office.shadeacademia.net`) |
-| ~~A~~ | **done (code):** desks, Ollie circuit sim, `events.js` adapter, `?live=1` / `events.json` poll, sim fallback |
-| B | Ingest: Pages Function + KV (or keep polling `events.json` from a bridge writer) |
+| ~~A~~ | **done:** desks, Ollie circuit sim, `events.js` adapter, sim fallback |
+| ~~B~~ | **done (code):** `GET/POST /api/events` + KV ring, ingest token, poll cursor, `scripts/demo-circuit.sh` — **you still bind KV + INGEST_TOKEN in the dashboard** |
 | C | Bridge: one Ollama job → emit circuit; chat stays in OWUI/Telegram |
 
 Prefer short sessions over one infinite thread.

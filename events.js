@@ -38,7 +38,7 @@ export function normalizeEvent(raw, deskById = {}) {
   return {
     ts: typeof e.ts === "number" ? e.ts : Date.now(),
     agentId,
-    type: e.type === "status" ? "status" : "status",
+    type: "status",
     state,
     message: e.message != null ? String(e.message) : "",
     target,
@@ -50,43 +50,91 @@ export function normalizeEvent(raw, deskById = {}) {
 }
 
 /**
- * Poll a JSON URL that is either an array of events or { events: [...] }.
- * Returns a controller { stop }.
+ * Poll /api/events (or a static JSON URL).
+ * Applies snapshot once, then only events newer than the last seen ts.
  */
 export function createJsonPollSource({
-  url = "./events.json",
+  url = "/api/events",
   intervalMs = 2000,
   desks = [],
   onEvent,
   onStatus,
 }) {
   const deskById = Object.fromEntries(desks.map((d) => [d.id, d]));
-  let lastKey = "";
+  let lastTs = 0;
+  let hydrated = false;
   let timer = null;
   let stopped = false;
+  let failCount = 0;
 
   async function tick() {
     if (stopped) return;
     try {
-      const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}t=${Date.now()}`, {
-        cache: "no-store",
-      });
+      const sep = url.includes("?") ? "&" : "?";
+      const q = hydrated && lastTs > 0 ? `${sep}since=${lastTs}&t=${Date.now()}` : `${sep}t=${Date.now()}`;
+      const res = await fetch(`${url}${q}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const list = Array.isArray(data) ? data : data.events || [];
-      const key = JSON.stringify(list);
-      if (key === lastKey) {
-        onStatus?.({ ok: true, mode: "live", detail: "polling" });
+
+      if (data.ok === false && data.error === "kv_not_bound") {
+        failCount += 1;
+        onStatus?.({ ok: false, mode: "live", detail: "kv not bound", fatal: true });
         return;
       }
-      lastKey = key;
+
+      const list = Array.isArray(data) ? data : data.events || [];
+      const snapshot = data.snapshot || null;
+
+      if (!hydrated) {
+        hydrated = true;
+        if (snapshot && typeof snapshot === "object" && Object.keys(snapshot).length) {
+          for (const raw of Object.values(snapshot)) {
+            const ev = normalizeEvent({ ...raw, teleport: true }, deskById);
+            if (ev) {
+              onEvent(ev);
+              if (ev.ts > lastTs) lastTs = ev.ts;
+            }
+          }
+          onStatus?.({ ok: true, mode: "live", detail: "snapshot" });
+        } else if (list.length) {
+          for (const raw of list) {
+            const ev = normalizeEvent(raw, deskById);
+            if (ev) {
+              onEvent(ev);
+              if (ev.ts > lastTs) lastTs = ev.ts;
+            }
+          }
+          onStatus?.({ ok: true, mode: "live", detail: `history ${list.length}` });
+        } else {
+          onStatus?.({ ok: true, mode: "live", detail: "empty — waiting" });
+        }
+        failCount = 0;
+        return;
+      }
+
+      let n = 0;
       for (const raw of list) {
         const ev = normalizeEvent(raw, deskById);
-        if (ev) onEvent(ev);
+        if (!ev) continue;
+        if (ev.ts <= lastTs) continue;
+        onEvent(ev);
+        lastTs = Math.max(lastTs, ev.ts);
+        n += 1;
       }
-      onStatus?.({ ok: true, mode: "live", detail: `applied ${list.length}` });
+      failCount = 0;
+      onStatus?.({
+        ok: true,
+        mode: "live",
+        detail: n ? `+${n}` : "polling",
+      });
     } catch (err) {
-      onStatus?.({ ok: false, mode: "live", detail: String(err.message || err) });
+      failCount += 1;
+      onStatus?.({
+        ok: false,
+        mode: "live",
+        detail: String(err.message || err),
+        failCount,
+      });
     }
   }
 
@@ -104,23 +152,49 @@ export function createJsonPollSource({
 }
 
 /**
- * Prefer live feed when ?live=1 or ?source=live, or when events.json exists and ?sim!=1.
- * Default: mock sim (safe offline demo).
+ * Default: mock sim (never leaves the floor empty).
+ * Live when ?live=1, or when /api/events is healthy (even if empty — user opted via probe).
+ *
+ * Auto rule:
+ *  - ?sim=1 → always sim
+ *  - ?live=1 → always live API
+ *  - else probe GET /api/events: if ok:true → live; else sim
  */
 export async function resolveFeedMode() {
   const params = new URLSearchParams(location.search);
-  if (params.get("sim") === "1") return "sim";
-  if (params.get("live") === "1" || params.get("source") === "live") return "live";
-  if (params.get("sim") === "0") return "live";
-  // Auto: use live only if events.json is present and non-empty
+  if (params.get("sim") === "1") return { mode: "sim", reason: "forced" };
+  if (params.get("live") === "1" || params.get("source") === "live") {
+    return { mode: "live", reason: "forced", url: "/api/events" };
+  }
+  if (params.get("source") === "json") {
+    return { mode: "live", reason: "events.json", url: "./events.json" };
+  }
+
+  try {
+    const res = await fetch(`/api/events?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ok === true) {
+        return { mode: "live", reason: "api", url: "/api/events" };
+      }
+    }
+  } catch {
+    /* fall through to sim */
+  }
+
+  // Legacy static file with events
   try {
     const res = await fetch("./events.json", { cache: "no-store" });
-    if (!res.ok) return "sim";
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : data.events || [];
-    if (list.length > 0) return "live";
+    if (res.ok) {
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.events || [];
+      if (list.length > 0) {
+        return { mode: "live", reason: "events.json", url: "./events.json" };
+      }
+    }
   } catch {
-    /* stay on sim */
+    /* sim */
   }
-  return "sim";
+
+  return { mode: "sim", reason: "fallback" };
 }

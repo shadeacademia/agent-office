@@ -248,19 +248,39 @@ function setup() {
       }
       requestAnimationFrame(frame);
 
-      // Feed: live events.json or mock circuit sim
-      const mode = await resolveFeedMode();
+      // Feed: live /api/events when healthy, else mock sim (floor never empty)
+      const feedMode = await resolveFeedMode();
       let feedHandle = null;
       let sim = null;
 
-      if (mode === "live") {
-        setSourceBadge("live", "events.json");
+      if (feedMode.mode === "live") {
+        setSourceBadge("live", feedMode.reason || "api");
+        // Park agents at home while waiting for live events
+        for (const def of agentsDef) {
+          const desk = deskById[def.homeDesk];
+          onEvent({
+            ts: Date.now(),
+            agentId: def.id,
+            type: "status",
+            state: def.primary || def.id === "ollie" ? "break" : "idle",
+            message: def.primary || def.id === "ollie" ? "On break" : "Standing by",
+            target: def.homeDesk,
+            targetX: desk?.x,
+            targetY: desk?.y,
+            nextState: def.primary || def.id === "ollie" ? "break" : "idle",
+            teleport: true,
+          });
+        }
         feedHandle = createJsonPollSource({
-          url: "./events.json",
+          url: feedMode.url || "/api/events",
           desks: office.desks,
           onEvent,
           onStatus: (s) => {
-            if (!s.ok) setSourceBadge("live", `error · falling back soon`);
+            if (s.fatal) {
+              setSourceBadge("live", "KV not bound — use ?sim=1");
+              return;
+            }
+            if (!s.ok) setSourceBadge("live", `retry · ${s.detail || "error"}`);
             else setSourceBadge("live", s.detail || "ok");
           },
         });
@@ -280,7 +300,7 @@ function setup() {
           sim.nudge(sim.primaryId);
           return;
         }
-        // Live mode: local-only visual nudge (does not write events.json)
+        // Live mode: local preview only (does not POST — bridge owns writes)
         const primary =
           agentsDef.find((a) => a.primary) ||
           agentsDef.find((a) => a.id === "ollie") ||
@@ -292,7 +312,7 @@ function setup() {
           agentId: primary.id,
           type: "status",
           state: "walk",
-          message: "Got a prompt",
+          message: "Got a prompt (local preview)",
           target: "desk-terminal",
           targetX: desk?.x,
           targetY: desk?.y,
@@ -300,8 +320,13 @@ function setup() {
         });
       });
 
-      // Expose for console debugging
-      window.__office = { onEvent, agents, office, mode, stop: () => feedHandle?.stop() };
+      window.__office = {
+        onEvent,
+        agents,
+        office,
+        feedMode,
+        stop: () => feedHandle?.stop(),
+      };
     }
   ).catch((err) => {
     console.error(err);

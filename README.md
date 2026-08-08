@@ -16,40 +16,57 @@ python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-Or: `npx --yes serve .`
+Default = **mock sim** (Ollie circuit). Functions/KV only run on Cloudflare Pages.
 
 > ES modules need HTTP — don’t open `index.html` as `file://`.
 
+## Live status API (Session B)
+
+| Method | Path | Who |
+|--------|------|-----|
+| `GET` | `/api/events` | Browser (public) |
+| `POST` | `/api/events` | Bridge only — needs `INGEST_TOKEN` |
+
+### One-time Cloudflare setup
+
+1. **KV** → create namespace (e.g. `OFFICE_EVENTS`)
+2. Pages project **agent-office-web** → **Settings** → **Functions** → **KV namespace bindings**
+   - Variable name: `EVENTS`
+   - Namespace: the one you created
+3. **Settings** → **Environment variables** (Production) → add secret:
+   - Name: `INGEST_TOKEN`
+   - Value: long random string (not committed to git)
+4. Redeploy if bindings were added after last deploy
+
+### Post a status (from your machine)
+
+```bash
+export OFFICE_URL=https://office.shadeacademia.net
+export INGEST_TOKEN='your-secret'
+
+chmod +x scripts/*.sh
+./scripts/post-status.sh ollie desk-terminal coding "Got a prompt"
+# full mock job:
+./scripts/demo-circuit.sh
+```
+
+Open the site; when `/api/events` is healthy it auto-uses **live** feed. Force modes:
+
+- `?sim=1` — always mock  
+- `?live=1` — always API  
+
+Messages are capped (~120 chars). Full LLM replies never belong in POST bodies.
+
 ## Cloudflare Pages deploy
 
-### A) Direct upload (fastest)
+Git on `main` → project **agent-office-web**:
 
-1. [Cloudflare Dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages** → **Upload assets**
-2. Project name: e.g. `agent-office`
-3. Upload the contents of this folder (`index.html`, `*.js`, `*.css`, `*.json`, `assets/`)
-4. Deploy → open the `*.pages.dev` URL
+- Framework: None  
+- Build command: empty  
+- Output directory: `/`  
+- Functions: `./functions`
 
-### B) Git (better for updates)
-
-1. Push this folder to a GitHub repo
-2. Pages → **Connect to Git** → select repo
-3. Build settings:
-   - **Framework preset:** None
-   - **Build command:** *(leave empty)*
-   - **Build output directory:** `/`
-4. Save and deploy
-
-### Custom domain (Squarespace DNS)
-
-1. Pages project → **Custom domains** → add `office.yourdomain.com`
-2. Cloudflare shows a **CNAME** target (usually `your-project.pages.dev`)
-3. In **Squarespace** → Domains → your domain → DNS:
-   - Type: `CNAME`
-   - Host: `office`
-   - Target: the value Cloudflare showed
-4. Wait for DNS + SSL, then visit `https://office.yourdomain.com`
-
-Keep your main Squarespace site on `www`; use the subdomain for this app.
+Custom domain: `office.shadeacademia.net` → CNAME `agent-office-web.pages.dev` (Squarespace).
 
 ## Project layout
 
@@ -58,12 +75,13 @@ Keep your main Squarespace site on `www`; use the subdomain for this app.
 | `index.html` | Shell |
 | `styles.css` | UI + floor |
 | `app.js` | Render + animation loop |
-| `sim.js` | Mock task simulator |
+| `sim.js` | Mock circuit simulator |
+| `events.js` | Event schema + poll adapter |
+| `functions/api/events.js` | GET/POST status API (KV) |
 | `office.json` | Desks / layout |
-| `agents.json` | Characters |
+| `agents.json` | Characters (Ollie, Nova, Byte) |
+| `scripts/` | `post-status.sh`, `demo-circuit.sh` |
 
-## Later (v2 ideas)
+## Next (Session C)
 
-- Replace `sim.js` with Server-Sent Events / websocket feed
-- Custom sprites in `assets/`
-- Don’t put secrets in the frontend
+Bridge from Ollama / Open WebUI / Telegram → `POST /api/events` with phase only; chat stays private.
