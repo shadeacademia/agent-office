@@ -4,14 +4,10 @@ name = "agent-office-web"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "."
 
-# Create KV in the dashboard (or: npx wrangler kv namespace create OFFICE_EVENTS)
-# then paste the id below and bind the same name in:
-#   Pages → agent-office-web → Settings → Functions → KV namespace bindings
-#   Variable name: EVENTS
-#
-# [[kv_namespaces]]
-# binding = "EVENTS"
-# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# KV: OFFICE_EVENTS (public status ring for /api/events)
+[[kv_namespaces]]
+binding = "EVENTS"
+id = "1e5ee292417e4c0688fc50b564ccf57c"
 
-# Secret (dashboard → Settings → Environment variables / Secrets):
-#   INGEST_TOKEN = long random string (used by bridge POST only)
+# Secret (set in dashboard / API, not in this file):
+#   INGEST_TOKEN = long random string (bridge POST only)
