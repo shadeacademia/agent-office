@@ -8,6 +8,13 @@
     "primary": true
   },
   {
+    "id": "grok",
+    "name": "Grok",
+    "role": "Visiting AI",
+    "color": "#c4b5fd",
+    "homeDesk": "desk-compose"
+  },
+  {
     "id": "nova",
     "name": "Nova",
     "role": "Ambient",
