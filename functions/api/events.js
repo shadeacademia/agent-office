@@ -15,7 +15,7 @@
 const KV_KEY = "ring";
 const MAX_EVENTS = 50;
 const MAX_MESSAGE = 120;
-const ALLOWED_AGENTS = new Set(["ollie", "nova", "byte"]);
+const ALLOWED_AGENTS = new Set(["ollie", "grok", "nova", "byte"]);
 const STATES = new Set(["idle", "walk", "coding", "review", "break", "blocked"]);
 
 function json(data, status = 200, extraHeaders = {}) {
