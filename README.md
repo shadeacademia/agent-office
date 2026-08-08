@@ -1,8 +1,12 @@
 # Agent Office (v1)
 
-Tiny animated multi-agent office UI. **Pure static files** — no build step, no backend, no API keys.
+Tiny animated multi-agent office UI. **Pure static files** — no build step, no API keys in the browser.
 
-Mock agents walk between desks, show chat bubbles, and stream into an activity feed.
+**Live:** https://office.shadeacademia.net
+
+v2 floor story: **Terminal → Research → Compose → Break** (Ollie). Public bubbles are **status only** — full chat stays in Open WebUI / Telegram.
+
+Mock sim runs by default. Optional live feed: put events in `events.json` or open with `?live=1`.
 
 ## Local
 

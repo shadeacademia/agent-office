@@ -1,10 +1,15 @@
 import { createSimulator } from "./sim.js";
+import {
+  createJsonPollSource,
+  normalizeEvent,
+  resolveFeedMode,
+} from "./events.js";
 
 const STATE_LABEL = {
   idle: "Idle",
   walk: "Walking",
-  coding: "Coding",
-  review: "Review",
+  coding: "Working",
+  review: "Research",
   break: "Break",
   blocked: "Blocked",
 };
@@ -28,6 +33,16 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+function setSourceBadge(mode, detail = "") {
+  const node = document.getElementById("feed-source");
+  if (!node) return;
+  node.textContent =
+    mode === "live"
+      ? `Live feed${detail ? ` · ${detail}` : ""}`
+      : "Mock sim · full replies stay in chat";
+  node.dataset.mode = mode;
+}
+
 function setup() {
   const floor = document.getElementById("floor");
   const feed = document.getElementById("feed");
@@ -35,10 +50,12 @@ function setup() {
   const clock = document.getElementById("clock");
 
   Promise.all([loadJSON("./office.json"), loadJSON("./agents.json")]).then(
-    ([office, agentsDef]) => {
+    async ([office, agentsDef]) => {
       floor.style.width = `${office.width}px`;
       floor.style.height = `${office.height}px`;
       document.getElementById("office-name").textContent = office.name;
+
+      const deskById = Object.fromEntries(office.desks.map((d) => [d.id, d]));
 
       // Desks
       for (const desk of office.desks) {
@@ -94,7 +111,6 @@ function setup() {
           bubbleUntil: 0,
         };
 
-        // Roster row
         const row = el("div", "roster-row", roster);
         row.dataset.agent = def.id;
         const swatch = el("span", "swatch", row);
@@ -113,7 +129,11 @@ function setup() {
         if (!agent) return;
         const item = el("div", `feed-item state-${event.nextState || event.state}`);
         const t = new Date(event.ts);
-        const time = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        const time = t.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
         item.innerHTML = `<span class="feed-time">${time}</span>
           <span class="feed-who" style="color:${agent.color}">${agent.name}</span>
           <span class="feed-msg">${escapeHtml(event.message || "")}</span>`;
@@ -121,9 +141,19 @@ function setup() {
         while (feed.children.length > 40) feed.lastChild.remove();
       }
 
-      function onEvent(event) {
+      function onEvent(raw) {
+        const event = normalizeEvent(raw, deskById) || raw;
         const agent = agents[event.agentId];
         if (!agent) return;
+
+        // Resolve desk coordinates if only target id was provided
+        if (event.target && (event.targetX == null || event.targetY == null)) {
+          const desk = deskById[event.target];
+          if (desk) {
+            event.targetX = desk.x;
+            event.targetY = desk.y;
+          }
+        }
 
         if (event.teleport && event.targetX != null) {
           agent.x = event.targetX;
@@ -144,17 +174,26 @@ function setup() {
           agent.state = event.state;
         } else if (event.teleport) {
           agent.state = event.state;
+        } else if (event.state && event.state !== "walk") {
+          // Live feeds may set working states without a walk if already at desk
+          if (
+            Math.hypot(agent.x - (event.targetX ?? agent.x), agent.y - (event.targetY ?? agent.y)) < 8
+          ) {
+            agent.state = event.state;
+          } else {
+            agent.state = "walk";
+          }
         }
 
-        // Bubble
         if (event.message) {
           agent.bubbleText.textContent = event.message;
           agent.bubble.classList.remove("hidden");
           agent.bubbleUntil = performance.now() + 3500;
         }
 
-        agent.rosterStatus.textContent = STATE_LABEL[agent.nextState] || agent.nextState;
-        agent.rosterStatus.dataset.state = agent.nextState;
+        const labelState = agent.state === "walk" ? agent.nextState : agent.state;
+        agent.rosterStatus.textContent = STATE_LABEL[labelState] || labelState;
+        agent.rosterStatus.dataset.state = labelState;
         agent.node.dataset.state = agent.state;
 
         if (!event.teleport) pushFeed(event);
@@ -196,8 +235,10 @@ function setup() {
             agent.bubbleUntil = 0;
           }
 
-          // Working animation class
-          agent.node.classList.toggle("working", agent.state === "coding" || agent.state === "review");
+          agent.node.classList.toggle(
+            "working",
+            agent.state === "coding" || agent.state === "review"
+          );
           agent.node.classList.toggle("blocked", agent.state === "blocked");
           agent.node.classList.toggle("break", agent.state === "break");
         }
@@ -207,28 +248,60 @@ function setup() {
       }
       requestAnimationFrame(frame);
 
-      const sim = createSimulator({
-        agents: agentsDef,
-        desks: office.desks,
-        onEvent,
-      });
-      sim.start();
+      // Feed: live events.json or mock circuit sim
+      const mode = await resolveFeedMode();
+      let feedHandle = null;
+      let sim = null;
 
-      document.getElementById("btn-nudge").addEventListener("click", () => {
-        const list = Object.values(agents);
-        const a = list[Math.floor(Math.random() * list.length)];
+      if (mode === "live") {
+        setSourceBadge("live", "events.json");
+        feedHandle = createJsonPollSource({
+          url: "./events.json",
+          desks: office.desks,
+          onEvent,
+          onStatus: (s) => {
+            if (!s.ok) setSourceBadge("live", `error · falling back soon`);
+            else setSourceBadge("live", s.detail || "ok");
+          },
+        });
+      } else {
+        setSourceBadge("sim");
+        sim = createSimulator({
+          agents: agentsDef,
+          desks: office.desks,
+          onEvent,
+        });
+        sim.start();
+      }
+
+      const btn = document.getElementById("btn-nudge");
+      btn?.addEventListener("click", () => {
+        if (sim) {
+          sim.nudge(sim.primaryId);
+          return;
+        }
+        // Live mode: local-only visual nudge (does not write events.json)
+        const primary =
+          agentsDef.find((a) => a.primary) ||
+          agentsDef.find((a) => a.id === "ollie") ||
+          agentsDef[0];
+        if (!primary) return;
+        const desk = deskById["desk-terminal"];
         onEvent({
           ts: Date.now(),
-          agentId: a.id,
+          agentId: primary.id,
           type: "status",
           state: "walk",
-          message: "Manual nudge — on it",
-          target: a.homeDesk,
-          targetX: office.desks.find((d) => d.id === a.homeDesk)?.x,
-          targetY: office.desks.find((d) => d.id === a.homeDesk)?.y,
+          message: "Got a prompt",
+          target: "desk-terminal",
+          targetX: desk?.x,
+          targetY: desk?.y,
           nextState: "coding",
         });
       });
+
+      // Expose for console debugging
+      window.__office = { onEvent, agents, office, mode, stop: () => feedHandle?.stop() };
     }
   ).catch((err) => {
     console.error(err);

@@ -1,30 +1,24 @@
 [
   {
-    "id": "rex",
-    "name": "Rex",
-    "role": "Lead",
+    "id": "ollie",
+    "name": "Ollie",
+    "role": "Local LLM",
     "color": "#7dd3fc",
-    "homeDesk": "desk-2"
+    "homeDesk": "desk-break",
+    "primary": true
   },
   {
     "id": "nova",
     "name": "Nova",
-    "role": "Frontend",
+    "role": "Ambient",
     "color": "#f9a8d4",
-    "homeDesk": "desk-1"
+    "homeDesk": "desk-research"
   },
   {
     "id": "byte",
     "name": "Byte",
-    "role": "Infra",
+    "role": "Ambient",
     "color": "#86efac",
-    "homeDesk": "desk-3"
-  },
-  {
-    "id": "quill",
-    "name": "Quill",
-    "role": "Reviewer",
-    "color": "#fcd34d",
-    "homeDesk": "desk-4"
+    "homeDesk": "desk-terminal"
   }
 ]

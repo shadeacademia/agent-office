@@ -3,11 +3,10 @@
   "width": 960,
   "height": 540,
   "desks": [
-    { "id": "desk-1", "label": "Frontend", "x": 160, "y": 200 },
-    { "id": "desk-2", "label": "Backend", "x": 400, "y": 200 },
-    { "id": "desk-3", "label": "Infra", "x": 640, "y": 200 },
-    { "id": "desk-4", "label": "Review", "x": 280, "y": 360 },
-    { "id": "desk-5", "label": "Break", "x": 560, "y": 360 }
+    { "id": "desk-terminal", "label": "Terminal", "x": 160, "y": 200 },
+    { "id": "desk-research", "label": "Research", "x": 400, "y": 200 },
+    { "id": "desk-compose", "label": "Compose", "x": 640, "y": 200 },
+    { "id": "desk-break", "label": "Break", "x": 400, "y": 360 }
   ],
   "spawn": { "x": 80, "y": 480 },
   "coffee": { "x": 860, "y": 120 }

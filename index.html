@@ -12,12 +12,12 @@
     <header class="topbar">
       <div class="brand">
         <h1>Agent Office</h1>
-        <span class="sub">v1 mock sim · no backend · Cloudflare Pages ready</span>
+        <span class="sub">Terminal → Research → Compose → Break · status board only</span>
       </div>
       <div class="topbar-actions">
         <span id="clock"></span>
-        <button type="button" id="btn-nudge" title="Send a random agent back to work">
-          Nudge agent
+        <button type="button" id="btn-nudge" title="Run a mock job circuit for Ollie">
+          Run job
         </button>
       </div>
     </header>
@@ -40,13 +40,14 @@
         </section>
         <section class="panel" style="flex: 1">
           <h2>Activity</h2>
+          <p id="feed-source" class="feed-source">Mock sim · full replies stay in chat</p>
           <div id="feed"></div>
         </section>
       </aside>
     </main>
 
     <footer class="footer">
-      Static demo · open via HTTP · deploy output dir <code>/</code> · no build step
+      Public status only · chat in Open WebUI / Telegram · deploy output <code>/</code>
     </footer>
 
     <script type="module" src="./app.js"></script>

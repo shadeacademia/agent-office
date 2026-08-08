@@ -1,87 +1,182 @@
 /**
  * Mock agent simulator — pure frontend, no backend.
- * Emits tiny events the office renderer consumes.
+ * Emits the same event shape as a future live bridge (see events.js).
+ *
+ * Primary agent (Ollie): Terminal → Research → Compose → Break circuit.
+ * Ambient agents: light random movement so the floor isn't empty.
  */
 
-const TASKS = [
-  { state: "coding", message: "Scaffolding the login form", desk: "desk-1" },
-  { state: "coding", message: "Wiring the API client", desk: "desk-2" },
-  { state: "coding", message: "Tuning deploy pipeline", desk: "desk-3" },
-  { state: "review", message: "Reviewing PR #12", desk: "desk-4" },
-  { state: "coding", message: "Fixing the flaky test", desk: "desk-2" },
-  { state: "blocked", message: "Waiting on design tokens", desk: "desk-1" },
-  { state: "break", message: "Coffee break", desk: "desk-5" },
-  { state: "coding", message: "Compacting context…", desk: "desk-2" },
-  { state: "review", message: "LGTM with nits", desk: "desk-4" },
-  { state: "coding", message: "Chasing a race condition", desk: "desk-3" },
-  { state: "idle", message: "Idle — standing by", desk: null },
+/** Public status lines only — never full LLM replies. */
+const CIRCUIT = [
+  {
+    desk: "desk-terminal",
+    nextState: "coding",
+    message: "Got a prompt",
+    dwellMs: 2800,
+  },
+  {
+    desk: "desk-research",
+    nextState: "review",
+    message: "Researching…",
+    dwellMs: 3200,
+  },
+  {
+    desk: "desk-compose",
+    nextState: "coding",
+    message: "Writing a reply…",
+    dwellMs: 3000,
+  },
+  {
+    desk: "desk-compose",
+    nextState: "coding",
+    message: "Replied — see chat",
+    dwellMs: 2200,
+  },
+  {
+    desk: "desk-break",
+    nextState: "break",
+    message: "On break",
+    dwellMs: 5500,
+  },
+];
+
+const AMBIENT = [
+  { state: "coding", message: "Tidying notes", desk: "desk-terminal" },
+  { state: "review", message: "Skimming bookmarks", desk: "desk-research" },
+  { state: "break", message: "Coffee run", desk: "desk-break" },
+  { state: "idle", message: "Standing by", desk: null },
+  { state: "coding", message: "Stretching context…", desk: "desk-compose" },
 ];
 
 export function createSimulator({ agents, desks, onEvent }) {
   const deskById = Object.fromEntries(desks.map((d) => [d.id, d]));
-  let tick = 0;
-  let timer = null;
+  const primary =
+    agents.find((a) => a.primary) ||
+    agents.find((a) => a.id === "ollie") ||
+    agents[0];
+  const ambient = agents.filter((a) => a.id !== primary?.id);
+
+  let circuitTimers = [];
+  let ambientTimer = null;
+  let jobGeneration = 0;
 
   function emit(agentId, partial) {
     onEvent({
       ts: Date.now(),
       agentId,
+      type: "status",
       ...partial,
     });
   }
 
-  function assignRandom(agent) {
-    const task = TASKS[Math.floor(Math.random() * TASKS.length)];
-    const deskId = task.desk || agent.homeDesk;
-    const desk = deskById[deskId];
-
+  function goToDesk(agent, deskId, { nextState, message, teleport = false }) {
+    const desk = deskById[deskId] || deskById[agent.homeDesk];
+    const id = desk?.id || deskId;
     emit(agent.id, {
-      type: "status",
-      state: task.state === "idle" ? "idle" : "walk",
-      message: task.message,
-      target: deskId,
+      state: teleport ? nextState || "idle" : "walk",
+      message,
+      target: id,
       targetX: desk?.x,
       targetY: desk?.y,
-      nextState: task.state,
+      nextState: nextState || "idle",
+      teleport,
     });
   }
 
+  function clearCircuitTimers() {
+    for (const t of circuitTimers) clearTimeout(t);
+    circuitTimers = [];
+  }
+
+  function after(ms, fn) {
+    const gen = jobGeneration;
+    const id = setTimeout(() => {
+      if (gen !== jobGeneration) return;
+      fn();
+    }, ms);
+    circuitTimers.push(id);
+  }
+
+  /** Run one full job circuit for the primary agent, then loop. */
+  function runCircuit() {
+    if (!primary) return;
+    jobGeneration += 1;
+    clearCircuitTimers();
+
+    let stepIndex = 0;
+
+    const runStep = () => {
+      const step = CIRCUIT[stepIndex];
+      if (!step) {
+        after(4000, runCircuit);
+        return;
+      }
+
+      goToDesk(primary, step.desk, {
+        nextState: step.nextState,
+        message: step.message,
+      });
+
+      stepIndex += 1;
+      after(step.dwellMs + 1800, runStep);
+    };
+
+    runStep();
+  }
+
+  function assignAmbient(agent) {
+    const task = AMBIENT[Math.floor(Math.random() * AMBIENT.length)];
+    const deskId = task.desk || agent.homeDesk;
+    goToDesk(agent, deskId, {
+      nextState: task.state === "idle" ? "idle" : task.state,
+      message: task.message,
+    });
+  }
+
+  function startAmbient() {
+    if (ambientTimer) clearInterval(ambientTimer);
+    if (!ambient.length) return;
+    // Use plain timeouts so circuit jobGeneration resets don't cancel ambient.
+    ambient.forEach((agent, i) => {
+      setTimeout(() => assignAmbient(agent), 2000 + i * 900);
+    });
+    ambientTimer = setInterval(() => {
+      const a = ambient[Math.floor(Math.random() * ambient.length)];
+      assignAmbient(a);
+    }, 6000);
+  }
+
   function start() {
-    // Initial placement
     for (const agent of agents) {
-      const desk = deskById[agent.homeDesk];
-      emit(agent.id, {
-        type: "status",
-        state: "idle",
-        message: "Booting workspace…",
-        target: agent.homeDesk,
-        targetX: desk?.x,
-        targetY: desk?.y,
-        nextState: "idle",
+      const home = agent.homeDesk || "desk-break";
+      goToDesk(agent, home, {
+        nextState: agent.id === primary?.id ? "break" : "idle",
+        message: agent.id === primary?.id ? "On break" : "Booting workspace…",
         teleport: true,
       });
     }
 
-    // Stagger first jobs
-    agents.forEach((agent, i) => {
-      setTimeout(() => assignRandom(agent), 800 + i * 600);
-    });
-
-    timer = setInterval(() => {
-      tick += 1;
-      // Reassign 1–2 agents each cycle
-      const count = 1 + (tick % 3 === 0 ? 1 : 0);
-      const shuffled = [...agents].sort(() => Math.random() - 0.5);
-      for (let i = 0; i < count && i < shuffled.length; i++) {
-        assignRandom(shuffled[i]);
-      }
-    }, 4200);
+    setTimeout(() => runCircuit(), 1200);
+    startAmbient();
   }
 
   function stop() {
-    if (timer) clearInterval(timer);
-    timer = null;
+    jobGeneration += 1;
+    clearCircuitTimers();
+    if (ambientTimer) clearInterval(ambientTimer);
+    ambientTimer = null;
   }
 
-  return { start, stop };
+  /** Manual "Run job": restart primary circuit from Terminal. */
+  function nudge(agentId) {
+    const agent = agents.find((a) => a.id === agentId) || primary;
+    if (!agent) return;
+    if (agent.id === primary?.id) {
+      runCircuit();
+      return;
+    }
+    assignAmbient(agent);
+  }
+
+  return { start, stop, nudge, primaryId: primary?.id };
 }

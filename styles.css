@@ -355,6 +355,16 @@ button:hover {
   font-size: 0.85rem;
 }
 
+.feed-source {
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.feed-source[data-mode="live"] {
+  color: var(--ok);
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.72rem;
