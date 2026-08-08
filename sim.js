@@ -176,27 +176,15 @@ export function createSimulator({
     runStep();
   }
 
-  function assignPrimaryIdle() {
-    if (!primary || primaryPaused || !primaryControlled || demo) return;
-    const task = pickWeighted(PRIMARY_IDLE);
-    let targetId = task.desk || primary.homeDesk || "desk-break";
-    if (targetId === "prop-coffee" && !targetById["prop-coffee"] && !coffee) {
-      targetId = "desk-break";
-    }
-    goTo(primary, targetId, {
-      nextState: task.state === "idle" ? "idle" : task.state,
-      message: task.message,
+  /** Ollie stays put at break — no ambient wander / auto coffee. */
+  function parkPrimaryOnBreak({ teleport = false, message = "On break" } = {}) {
+    if (!primary) return;
+    const home = primary.homeDesk || "desk-break";
+    goTo(primary, home, {
+      nextState: "break",
+      message,
+      teleport,
     });
-  }
-
-  function startPrimaryIdle() {
-    if (primaryIdleTimer) clearInterval(primaryIdleTimer);
-    if (!primary || !primaryControlled || demo) return;
-    setTimeout(() => assignPrimaryIdle(), 2500);
-    // Slower than ambient — Ollie is mostly “on break”
-    primaryIdleTimer = setInterval(() => {
-      if (!primaryPaused && primaryControlled) assignPrimaryIdle();
-    }, 14000);
   }
 
   function assignAmbient(agent) {
