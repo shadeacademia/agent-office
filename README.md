@@ -6,7 +6,7 @@ Tiny animated multi-agent office UI. **Pure static files** — no build step, no
 
 v2 floor story: **Terminal → Research → Compose → Break** (Ollie). Public bubbles are **status only** — full chat stays in Open WebUI / Telegram.
 
-Mock sim runs by default. Optional live feed: put events in `events.json` or open with `?live=1`.
+**Idle mode** keeps the floor alive (ambient + soft break/coffee). Real job walks only come from the live bridge. Opt-in demo circuit: `?demo=1`.
 
 ## Local
 
@@ -16,7 +16,7 @@ python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-Default = **mock sim** (Ollie circuit). Functions/KV only run on Cloudflare Pages.
+Default = **idle mode** (no fake jobs). On Pages, healthy `/api/events` adds the **live** feed on top.
 
 > ES modules need HTTP — don’t open `index.html` as `file://`.
 
@@ -50,10 +50,12 @@ chmod +x scripts/*.sh
 ./scripts/demo-circuit.sh
 ```
 
-Open the site; when `/api/events` is healthy it auto-uses **live** feed. Force modes:
+When `/api/events` is healthy, live status is used for real jobs; idle theater still runs when quiet. Force modes:
 
-- `?sim=1` — always mock  
-- `?live=1` — always API  
+- `?idle=1` — idle only (no live probe)  
+- `?live=1` — always poll API  
+- `?demo=1` or `?sim=1` — fake job circuit (demo only, not real work)  
+
 
 Messages are capped (~120 chars). Full LLM replies never belong in POST bodies.
 

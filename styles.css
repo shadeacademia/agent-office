@@ -460,6 +460,10 @@ button:disabled {
   color: var(--ok);
 }
 
+.feed-source[data-mode="idle"] {
+  color: var(--warn);
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.72rem;

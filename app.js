@@ -64,11 +64,14 @@ function clamp(n, min, max) {
 function setSourceBadge(mode, detail = "") {
   const node = document.getElementById("feed-source");
   if (!node) return;
-  node.textContent =
-    mode === "live"
-      ? `Live feed${detail ? ` · ${detail}` : ""}`
-      : "Mock sim · full replies stay in chat";
-  node.dataset.mode = mode;
+  if (mode === "live") {
+    node.textContent = `Live feed · idle floor${detail ? ` · ${detail}` : ""}`;
+  } else if (mode === "demo") {
+    node.textContent = `Demo circuit${detail ? ` · ${detail}` : ""} · not real jobs`;
+  } else {
+    node.textContent = `Idle mode${detail ? ` · ${detail}` : ""} · full replies stay in chat`;
+  }
+  node.dataset.mode = mode === "demo" ? "idle" : mode;
 }
 
 function setup() {
@@ -562,36 +565,66 @@ function setup() {
       }
       requestAnimationFrame(frame);
 
-      // Feed: live /api/events when healthy, else mock sim (floor never empty)
+      // Live feed when API healthy; idle theater always keeps the floor alive.
+      // Fake job circuit only with ?demo=1 / ?sim=1.
       const feedMode = await resolveFeedMode();
       let feedHandle = null;
       let sim = null;
 
-      if (feedMode.mode === "live") {
+      const wantDemo = Boolean(feedMode.demo);
+      const isLive = feedMode.mode === "live";
+
+      // Idle theater always: ambient wander + soft Ollie break/coffee.
+      // Live jobs pause Ollie's idle; demo circuit is opt-in only.
+      sim = createSimulator({
+        agents: agentsDef,
+        desks: office.desks,
+        coffee: office.coffee,
+        onEvent,
+        demo: wantDemo,
+        controlPrimary: true,
+        parkOnStart: true,
+      });
+      sim.start();
+
+      if (wantDemo) {
+        setSourceBadge("demo", feedMode.reason || "");
+      } else if (isLive) {
         setSourceBadge("live", feedMode.reason || "api");
-        // Park agents at home while waiting for live events
-        for (const def of agentsDef) {
-          const desk = deskById[def.homeDesk];
-          onEvent({
-            ts: Date.now(),
-            agentId: def.id,
-            type: "status",
-            state: def.primary || def.id === "ollie" ? "break" : "idle",
-            message: def.primary || def.id === "ollie" ? "On break" : "Standing by",
-            target: def.homeDesk,
-            targetX: desk?.x,
-            targetY: desk?.y,
-            nextState: def.primary || def.id === "ollie" ? "break" : "idle",
-            teleport: true,
-          });
-        }
+
+        const liveOnEvent = (raw) => {
+          const event = normalizeEvent(raw, deskById) || raw;
+          const isPrimary =
+            primaryDef && event.agentId === primaryDef.id;
+          if (isPrimary && sim) {
+            const phase = event.nextState || event.state;
+            const toTerminal =
+              event.target === "desk-terminal" ||
+              event.target === "desk-research" ||
+              event.target === "desk-compose";
+            const working =
+              phase === "coding" ||
+              phase === "review" ||
+              phase === "blocked" ||
+              (event.state === "walk" && toTerminal);
+            if (working) {
+              // Real job owns Ollie — no idle theater for primary
+              sim.notifyLiveBusy();
+            } else if (phase === "break" || phase === "idle") {
+              // Quiet again — soft idle resumes after a short dwell
+              sim.notifyLiveIdle(10000);
+            }
+          }
+          onEvent(event);
+        };
+
         feedHandle = createJsonPollSource({
           url: feedMode.url || "/api/events",
           desks: office.desks,
-          onEvent,
+          onEvent: liveOnEvent,
           onStatus: (s) => {
             if (s.fatal) {
-              setSourceBadge("live", "KV not bound — use ?sim=1");
+              setSourceBadge("idle", "API offline");
               return;
             }
             if (!s.ok) setSourceBadge("live", `retry · ${s.detail || "error"}`);
@@ -599,14 +632,7 @@ function setup() {
           },
         });
       } else {
-        setSourceBadge("sim");
-        sim = createSimulator({
-          agents: agentsDef,
-          desks: office.desks,
-          coffee: office.coffee,
-          onEvent,
-        });
-        sim.start();
+        setSourceBadge("idle", feedMode.reason || "");
       }
 
       coffeeBtn?.addEventListener("click", () => startCoffeeRun());
@@ -619,7 +645,10 @@ function setup() {
         feedMode,
         startCoffeeRun,
         canGetCoffee: () => canGetCoffee(getPrimaryAgent()),
-        stop: () => feedHandle?.stop(),
+        stop: () => {
+          feedHandle?.stop();
+          sim?.stop();
+        },
       };
     }
   ).catch((err) => {

@@ -152,22 +152,28 @@ export function createJsonPollSource({
 }
 
 /**
- * Default: mock sim (never leaves the floor empty).
- * Live when ?live=1, or when /api/events is healthy (even if empty — user opted via probe).
+ * Floor feed mode.
  *
- * Auto rule:
- *  - ?sim=1 → always sim
- *  - ?live=1 → always live API
- *  - else probe GET /api/events: if ok:true → live; else sim
+ *  - ?demo=1 or ?sim=1 → idle theater + fake job circuit (show-and-tell)
+ *  - ?live=1 → always poll /api/events (idle theater still runs underneath)
+ *  - ?idle=1 → idle only (no live probe)
+ *  - else: if /api/events is healthy → live + idle; else idle only
+ *
+ * Idle mode never fakes "Got a prompt" — only ambient / break / coffee theater.
  */
 export async function resolveFeedMode() {
   const params = new URLSearchParams(location.search);
-  if (params.get("sim") === "1") return { mode: "sim", reason: "forced" };
+  if (params.get("demo") === "1" || params.get("sim") === "1") {
+    return { mode: "idle", reason: "demo", demo: true };
+  }
+  if (params.get("idle") === "1") {
+    return { mode: "idle", reason: "forced", demo: false };
+  }
   if (params.get("live") === "1" || params.get("source") === "live") {
-    return { mode: "live", reason: "forced", url: "/api/events" };
+    return { mode: "live", reason: "forced", url: "/api/events", demo: false };
   }
   if (params.get("source") === "json") {
-    return { mode: "live", reason: "events.json", url: "./events.json" };
+    return { mode: "live", reason: "events.json", url: "./events.json", demo: false };
   }
 
   try {
@@ -175,11 +181,11 @@ export async function resolveFeedMode() {
     if (res.ok) {
       const data = await res.json();
       if (data && data.ok === true) {
-        return { mode: "live", reason: "api", url: "/api/events" };
+        return { mode: "live", reason: "api", url: "/api/events", demo: false };
       }
     }
   } catch {
-    /* fall through to sim */
+    /* fall through to idle */
   }
 
   // Legacy static file with events
@@ -189,12 +195,12 @@ export async function resolveFeedMode() {
       const data = await res.json();
       const list = Array.isArray(data) ? data : data.events || [];
       if (list.length > 0) {
-        return { mode: "live", reason: "events.json", url: "./events.json" };
+        return { mode: "live", reason: "events.json", url: "./events.json", demo: false };
       }
     }
   } catch {
-    /* sim */
+    /* idle */
   }
 
-  return { mode: "sim", reason: "fallback" };
+  return { mode: "idle", reason: "fallback", demo: false };
 }
