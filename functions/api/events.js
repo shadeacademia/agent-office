@@ -157,7 +157,7 @@ export async function onRequestPost(context) {
     return json({
       ok: false,
       error: "no_valid_events",
-      hint: "Need agentId in ollie|nova|byte and a short public message.",
+      hint: "Need agentId in ollie|grok|nova|byte and a short public message.",
     }, 400);
   }
 

@@ -167,9 +167,16 @@ Open WebUI / Telegram  ←→  Ollama (home)
 
 Prefer short sessions over one infinite thread.
 
+## v2.1 (Grok Build as second live body)
+
+- Grok is `live: true` (not ambient): parks on break, same desk circuit as Ollie
+- Grok Build hooks (`bridge/grok_office_hook.py` + `~/.grok/hooks/agent-office.json`) post phases
+- Coffee button: any live agent currently on break (primary preferred)
+- Ollie still Telegram/OWUI; Grok still never posts full chat text
+
 ## v3 (only if addicted)
 
-- Multiple real producers / multi-agent status
+- More real producers / richer multi-agent status
 - Persistence (who did what last week)
 - Auth if the feed shouldn’t be public
 - Richer public teasers (topic tags) without full text

@@ -1,13 +1,14 @@
 /**
  * Floor theater — pure frontend (same event shape as the live bridge).
  *
- * Default: **idle mode** — ambient agents (Nova/Byte) wander; primary (Ollie)
- * stays on break until a real live job or the Get coffee button. No auto coffee.
+ * Default: **idle mode** — ambient agents (Nova/Byte) wander; live agents
+ * (Ollie, Grok) stay on break until a real live job or Get coffee.
  *
  * Opt-in: **demo circuit** (`demo: true` / `?demo=1` / `?sim=1`) runs the
- * Terminal → Research → Compose → Break loop for show-and-tell.
+ * Terminal → Research → Compose → Break loop for the primary only.
  *
- * Live feed can run alongside idle: real job events move Ollie; ambient keeps going.
+ * Live feed can run alongside idle: real job events move live agents;
+ * ambient keeps going.
  */
 
 /** Public status lines only — never full LLM replies. */
@@ -44,7 +45,7 @@ const DEMO_CIRCUIT = [
   },
 ];
 
-/** Ambient cast (Nova / Byte) — Ollie does not use this list. */
+/** Ambient cast only — live agents (Ollie / Grok) do not use this list. */
 const AMBIENT = [
   { state: "coding", message: "Tidying notes", desk: "desk-terminal", weight: 2 },
   { state: "review", message: "Skimming bookmarks", desk: "desk-research", weight: 2 },
@@ -62,6 +63,14 @@ function pickWeighted(list) {
     if (r <= 0) return t;
   }
   return list[list.length - 1];
+}
+
+/** Live agents: real jobs + break park (not ambient wander). */
+export function isLiveAgent(def) {
+  if (!def) return false;
+  if (def.live === true || def.primary === true) return true;
+  // Back-compat if roster omits flags
+  return def.id === "ollie";
 }
 
 /**
@@ -90,7 +99,9 @@ export function createSimulator({
     agents.find((a) => a.primary) ||
     agents.find((a) => a.id === "ollie") ||
     agents[0];
-  const ambient = agents.filter((a) => a.id !== primary?.id);
+  const liveAgents = agents.filter((a) => isLiveAgent(a));
+  const liveIds = new Set(liveAgents.map((a) => a.id));
+  const ambient = agents.filter((a) => !liveIds.has(a.id));
 
   let circuitTimers = [];
   let ambientTimer = null;
@@ -176,15 +187,22 @@ export function createSimulator({
     runStep();
   }
 
-  /** Ollie stays put at break — no ambient wander / auto coffee. */
-  function parkPrimaryOnBreak({ teleport = false, message = "On break" } = {}) {
-    if (!primary) return;
-    const home = primary.homeDesk || "desk-break";
-    goTo(primary, home, {
+  /** Live agents stay put at break — no ambient wander / auto coffee. */
+  function parkLiveOnBreak(
+    agent,
+    { teleport = false, message = "On break" } = {}
+  ) {
+    if (!agent) return;
+    const home = agent.homeDesk || "desk-break";
+    goTo(agent, home, {
       nextState: "break",
       message,
       teleport,
     });
+  }
+
+  function parkPrimaryOnBreak(opts) {
+    parkLiveOnBreak(primary, opts);
   }
 
   function assignAmbient(agent) {
@@ -215,10 +233,10 @@ export function createSimulator({
     if (parkOnStart) {
       for (const agent of agents) {
         const home = agent.homeDesk || "desk-break";
+        const live = liveIds.has(agent.id);
         goTo(agent, home, {
-          nextState: agent.id === primary?.id ? "break" : "idle",
-          message:
-            agent.id === primary?.id ? "On break" : "Standing by",
+          nextState: live ? "break" : "idle",
+          message: live ? "On break" : "Standing by",
           teleport: true,
         });
       }
@@ -228,7 +246,7 @@ export function createSimulator({
     if (demo) {
       setTimeout(() => runDemoCircuit(), 1200);
     }
-    // else: Ollie stays on break (parked above); coffee is button-only
+    // else: live agents stay on break (parked above); coffee is button-only
   }
 
   function stop() {
@@ -238,7 +256,7 @@ export function createSimulator({
     ambientTimer = null;
   }
 
-  /** Pause primary (coffee button or live job owns Ollie). Ambient keeps going. */
+  /** Pause primary demo circuit (coffee button or live job owns primary). */
   function pauseJobs() {
     primaryPaused = true;
     jobGeneration += 1;
@@ -247,7 +265,7 @@ export function createSimulator({
 
   /**
    * After coffee / live job ends: resume demo circuit if active.
-   * Otherwise Ollie remains on break until the next real job or coffee click.
+   * Otherwise live agents remain on break until the next real job or coffee.
    */
   function resumeJobsSoon(delayMs = 3500) {
     primaryPaused = false;
@@ -270,27 +288,37 @@ export function createSimulator({
     }
   }
 
-  /** Live job started for primary. */
-  function notifyLiveBusy() {
-    primaryPaused = true;
-    jobGeneration += 1;
-    clearCircuitTimers();
+  /**
+   * Live job started for a live agent.
+   * For primary, also pauses the demo circuit.
+   */
+  function notifyLiveBusy(agentId) {
+    if (!agentId || agentId === primary?.id) {
+      primaryPaused = true;
+      jobGeneration += 1;
+      clearCircuitTimers();
+    }
   }
 
-  /** Live primary returned to break — stay put (no auto wander). */
-  function notifyLiveIdle(_delayMs = 8000) {
-    primaryPaused = false;
-    if (demo || !primaryControlled) return;
-    // Intentionally do not move Ollie; coffee is manual only.
+  /** Live agent returned to break — stay put (no auto wander). */
+  function notifyLiveIdle(_agentId, _delayMs = 8000) {
+    if (!_agentId || _agentId === primary?.id) {
+      primaryPaused = false;
+      if (demo || !primaryControlled) return;
+      // Intentionally do not move primary; coffee is manual only.
+    }
   }
 
   function nudge(agentId) {
     const agent = agents.find((a) => a.id === agentId) || primary;
     if (!agent) return;
-    if (agent.id === primary?.id) {
-      if (primaryPaused) return;
-      if (demo) runDemoCircuit();
-      else parkPrimaryOnBreak({ message: "On break" });
+    if (liveIds.has(agent.id)) {
+      if (agent.id === primary?.id && primaryPaused) return;
+      if (agent.id === primary?.id && demo) {
+        runDemoCircuit();
+        return;
+      }
+      parkLiveOnBreak(agent, { message: "On break" });
       return;
     }
     assignAmbient(agent);
@@ -306,6 +334,7 @@ export function createSimulator({
     notifyLiveBusy,
     notifyLiveIdle,
     primaryId: primary?.id,
+    liveIds: [...liveIds],
     coffeeId: coffee?.id || "prop-coffee",
     demo,
   };

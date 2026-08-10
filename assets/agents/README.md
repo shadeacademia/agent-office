@@ -1,6 +1,7 @@
 # Agent sprites (pixel chibi robots)
 
-Cute cyan-family night-office bots. Ollie is the painted base; Nova / Byte are palette swaps.
+Cute cyan-family night-office bots. Ollie is the painted base; Grok / Nova / Byte are palette swaps.
+Live bodies (Ollie, Grok) use the same state sprites; only ambient agents wander in idle mode.
 
 | State file stem | Runtime `state` |
 |-----------------|-----------------|

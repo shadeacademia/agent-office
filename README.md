@@ -1,6 +1,6 @@
 # Ollie's Office
 
-Pixel night-office **status board** for a local agent. Pure static HTML/CSS/JS (no build step). Full chat stays in Open WebUI / Telegram — the floor only shows short public phases.
+Pixel night-office **status board** for live agents. Pure static HTML/CSS/JS (no build step). Full chat stays in Open WebUI / Telegram / Grok Build — the floor only shows short public phases.
 
 **Live:** https://office.shadeacademia.net
 
@@ -12,11 +12,11 @@ Portrait office with four stations and a coffee machine:
 
 | Who | Role |
 |-----|------|
-| **Ollie** | Primary local LLM — real jobs from the bridge; stays on break when quiet |
-| **Grok** | Visiting AI (ambient wander) |
+| **Ollie** | Local LLM — real jobs from Telegram / Open WebUI bridge; stays on break when quiet |
+| **Grok** | Grok Build — same circuit, driven by local hooks while you use Grok |
 | **Nova** / **Byte** | Ambient cast so the floor isn’t empty |
 
-**Get coffee** (header): sends Ollie to the machine — only while he is on break. Ambient agents may visit coffee on their own; Ollie does not auto-wander.
+**Get coffee** (header): sends a live agent on break (Ollie first, else Grok) to the machine. Ambient agents may visit coffee on their own; live agents do not auto-wander.
 
 Public bubbles and the activity feed are **status only** (e.g. “Got a prompt”, “Researching…”, “On break”). Never full prompts or model replies.
 
@@ -39,7 +39,7 @@ ES modules need HTTP — don’t open `index.html` as `file://`.
 | `?live=1` | Always poll the API |
 | `?demo=1` or `?sim=1` | Fake job circuit for show-and-tell (not real work) |
 
-**Idle:** Nova, Byte, and Grok wander. Ollie stays at Break until a real live phase or **Get coffee**.
+**Idle:** Nova and Byte wander. Ollie and Grok stay at Break until a real live phase or **Get coffee**.
 
 ## Live status API
 
@@ -86,9 +86,10 @@ cd agent-office
 python3 bridge/run_job.py "Summarize what a reverse proxy is in one sentence."
 python3 bridge/run_job.py --research "Who is the mayor of Melbourne?"
 python3 bridge/office_status.py break
+python3 bridge/office_status.py -a grok terminal   # drive Grok body
 ```
 
-### Telegram
+### Telegram (Ollie)
 
 If `telegram-openwebui-bridge` loads `bridge/office_status.py`, it can post:
 
@@ -102,6 +103,31 @@ If `telegram-openwebui-bridge` loads `bridge/office_status.py`, it can post:
 
 Disable with `OFFICE_STATUS=0`. Token from `.local/ingest_token`, not from the bot config.
 
+### Grok Build (Grok body)
+
+Same circuit as Ollie, posted as `agentId: "grok"`:
+
+| When | Public phase |
+|------|----------------|
+| Session start / end | On break |
+| User prompt | Got a prompt (Terminal) |
+| Web / X research tools | Researching… |
+| Other tools (edit, shell, …) | Working… (Compose) |
+| Turn ends cleanly | Replied — see Grok → On break |
+| Turn API error | Stuck → On break |
+
+**Install (once per machine):**
+
+```bash
+cd agent-office
+./scripts/install-grok-hooks.sh
+# writes ~/.grok/hooks/agent-office.json → bridge/grok_office_hook.py
+```
+
+Uses the same `INGEST_TOKEN` as Ollie (`.local/ingest_token` or env). Disable with `OFFICE_STATUS=0`. Optional: `OFFICE_AGENT_ID=grok` (default for the hook), `OFFICE_HOOK_DEBUG=1` for stderr logs.
+
+After install, restart Grok (or open a new session) so hooks load — check `/hooks`.
+
 ## Project layout
 
 | Path | Role |
@@ -110,10 +136,11 @@ Disable with `OFFICE_STATUS=0`. Token from `.local/ingest_token`, not from the b
 | `sim.js` | Idle theater (+ optional demo circuit) |
 | `events.js` | Event schema + poll adapter |
 | `office.json` | Layout, desks, coffee, station bounds |
-| `agents.json` | Roster (Ollie, Grok, Nova, Byte) |
+| `agents.json` | Roster — `live: true` = real jobs (Ollie, Grok); others ambient |
 | `assets/` | Pixel furniture, agents, room backdrop |
 | `functions/api/events.js` | GET/POST status API (KV) |
-| `bridge/` | Local Ollama / status POSTs |
+| `bridge/` | Ollama CLI, status POSTs, Grok Build hook |
+| `bridge/grok_office_hook.py` | Maps Grok lifecycle events → Grok floor phases |
 | `scripts/` | `post-status.sh`, `demo-circuit.sh` |
 | `favicon.*` | Ollie tab icons |
 

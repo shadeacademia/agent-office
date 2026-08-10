@@ -5,14 +5,16 @@
     "role": "Local LLM",
     "color": "#7dd3fc",
     "homeDesk": "desk-break",
-    "primary": true
+    "primary": true,
+    "live": true
   },
   {
     "id": "grok",
     "name": "Grok",
-    "role": "Visiting AI",
+    "role": "Grok Build",
     "color": "#c4b5fd",
-    "homeDesk": "desk-compose"
+    "homeDesk": "desk-break",
+    "live": true
   },
   {
     "id": "nova",

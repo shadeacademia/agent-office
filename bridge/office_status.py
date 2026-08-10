@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Post public Ollie status events to Agent Office (never full chat text)."""
+"""Post public status events to Agent Office (never full chat text).
+
+Default agent is Ollie (local LLM / Telegram). Pass agent_id=\"grok\" (or
+OFFICE_AGENT_ID) when driving Grok Build sessions.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +23,10 @@ _ROOT = Path(__file__).resolve().parents[1]
 _LOCAL = _ROOT / ".local"
 
 DEFAULT_URL = "https://office.shadeacademia.net"
-AGENT_ID = "ollie"
+DEFAULT_AGENT_ID = "ollie"
+ALLOWED_AGENTS = frozenset({"ollie", "grok", "nova", "byte"})
+# Back-compat alias
+AGENT_ID = DEFAULT_AGENT_ID
 
 # Public phase lines only
 PHASES: dict[str, dict[str, str]] = {
@@ -100,6 +107,15 @@ def load_config() -> tuple[str, str]:
     return url, token
 
 
+def resolve_agent_id(agent_id: str | None = None) -> str:
+    """Pick agent id from arg, OFFICE_AGENT_ID, or default (ollie)."""
+    raw = (agent_id or os.environ.get("OFFICE_AGENT_ID") or DEFAULT_AGENT_ID).strip().lower()
+    if raw not in ALLOWED_AGENTS:
+        log.warning("Unknown agent_id %r — using %s", raw, DEFAULT_AGENT_ID)
+        return DEFAULT_AGENT_ID
+    return raw
+
+
 class OfficeStatus:
     """Fire-and-forget public status board client."""
 
@@ -109,13 +125,13 @@ class OfficeStatus:
         token: str | None = None,
         *,
         enabled: bool | None = None,
-        agent_id: str = AGENT_ID,
+        agent_id: str | None = None,
         timeout: float = 15.0,
     ) -> None:
         cfg_url, cfg_token = load_config()
         self.url = (url or cfg_url).rstrip("/")
         self.token = token if token is not None else cfg_token
-        self.agent_id = agent_id
+        self.agent_id = resolve_agent_id(agent_id)
         self.timeout = timeout
         if enabled is None:
             enabled = os.environ.get("OFFICE_STATUS", "1").strip() not in (
@@ -212,8 +228,14 @@ def main() -> int:
         help="Phase to post",
     )
     p.add_argument("-m", "--message", help="Override public message (still short)")
+    p.add_argument(
+        "-a",
+        "--agent",
+        default=None,
+        help="Agent id (ollie|grok|…). Default: OFFICE_AGENT_ID or ollie",
+    )
     args = p.parse_args()
-    office = OfficeStatus()
+    office = OfficeStatus(agent_id=args.agent)
     if not office.enabled:
         print("disabled or missing token", file=__import__("sys").stderr)
         return 1

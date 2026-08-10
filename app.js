@@ -1,4 +1,4 @@
-import { createSimulator } from "./sim.js";
+import { createSimulator, isLiveAgent } from "./sim.js";
 import {
   createJsonPollSource,
   normalizeEvent,
@@ -133,6 +133,8 @@ function setup() {
         agentsDef.find((a) => a.primary) ||
         agentsDef.find((a) => a.id === "ollie") ||
         agentsDef[0];
+      const liveDefs = agentsDef.filter((a) => isLiveAgent(a));
+      const liveIdSet = new Set(liveDefs.map((a) => a.id));
 
       const coffeeBtn = document.getElementById("btn-coffee");
 
@@ -351,6 +353,23 @@ function setup() {
         return agents[primaryDef.id] || null;
       }
 
+      /** Live agents currently free for a coffee run (on break, not mid-job). */
+      function getCoffeeCandidates() {
+        return liveDefs
+          .map((d) => agents[d.id])
+          .filter((a) => a && canGetCoffee(a));
+      }
+
+      /**
+       * Prefer primary when free; else first other live agent on break.
+       * Keeps coffee working for Ollie and Grok the same way.
+       */
+      function pickCoffeeAgent() {
+        const primary = getPrimaryAgent();
+        if (canGetCoffee(primary)) return primary;
+        return getCoffeeCandidates()[0] || null;
+      }
+
       /** Strict: only while on break and not already on a coffee run. */
       function canGetCoffee(agent) {
         if (!agent || !office.coffee) return false;
@@ -361,26 +380,25 @@ function setup() {
 
       function updateCoffeeButton() {
         if (!coffeeBtn) return;
-        const agent = getPrimaryAgent();
-        const ok = canGetCoffee(agent);
+        const agent = pickCoffeeAgent();
+        const ok = Boolean(agent);
         coffeeBtn.disabled = !ok;
-        if (!agent) {
-          coffeeBtn.title = "No primary agent";
-        } else if (agent.coffeePhase) {
-          coffeeBtn.title = "Already on a coffee run";
-        } else if (agent.state !== "break") {
-          coffeeBtn.title = "Only available while Ollie is on break";
+        if (!liveDefs.length) {
+          coffeeBtn.title = "No live agent";
+        } else if (agent) {
+          coffeeBtn.title = `Send ${agent.name} to the coffee machine`;
         } else {
-          coffeeBtn.title = "Send Ollie to the coffee machine";
+          coffeeBtn.title =
+            "Only available while a live agent (Ollie / Grok) is on break";
         }
       }
 
       /**
        * Local floor theater (sim + live). Does not POST.
-       * Pauses mock job circuit so auto jobs don't yank Ollie mid-mug.
+       * Pauses mock job circuit so auto jobs don't yank the primary mid-mug.
        */
       function startCoffeeRun() {
-        const agent = getPrimaryAgent();
+        const agent = pickCoffeeAgent();
         if (!canGetCoffee(agent)) {
           updateCoffeeButton();
           return;
@@ -389,7 +407,8 @@ function setup() {
         agent.eventQueue = [];
         agent.coffeePhase = "to-machine";
         agent.coffeeUntil = 0;
-        if (sim) sim.pauseJobs();
+        // Demo circuit only owns the primary
+        if (sim && agent.id === primaryDef?.id) sim.pauseJobs();
 
         onEvent({
           ts: Date.now(),
@@ -444,7 +463,7 @@ function setup() {
         if (agent.coffeePhase === "to-break" && agent.state === "break") {
           agent.coffeePhase = null;
           agent.coffeeUntil = 0;
-          if (sim) sim.resumeJobsSoon(3000);
+          if (sim && agent.id === primaryDef?.id) sim.resumeJobsSoon(3000);
           updateCoffeeButton();
         }
       }
@@ -464,8 +483,8 @@ function setup() {
           if (!isCoffeeTarget && !(agent.coffeePhase === "to-break" && isHomeTarget)) {
             agent.coffeePhase = null;
             agent.coffeeUntil = 0;
-            if (sim) {
-              // Live/external took over — let jobs run again if we had paused
+            if (sim && agent.id === primaryDef?.id) {
+              // Live/external took over primary — resume demo if active
               sim.resumeJobsSoon(500);
             }
           }
@@ -663,8 +682,9 @@ function setup() {
       const wantDemo = Boolean(feedMode.demo);
       const isLive = feedMode.mode === "live";
 
-      // Idle theater always: ambient wander + soft Ollie break/coffee.
-      // Live jobs pause Ollie's idle; demo circuit is opt-in only.
+      // Idle theater always: ambient wander + live agents on break.
+      // Live jobs drive Ollie (Telegram/OWUI) and Grok (Grok Build hooks).
+      // Demo circuit is opt-in only and runs for the primary.
       sim = createSimulator({
         agents: agentsDef,
         desks: office.desks,
@@ -683,11 +703,10 @@ function setup() {
 
         const liveOnEvent = (raw) => {
           const event = normalizeEvent(raw, deskById) || raw;
-          const isPrimary =
-            primaryDef && event.agentId === primaryDef.id;
-          if (isPrimary && sim) {
+          const isLiveBody = liveIdSet.has(event.agentId);
+          if (isLiveBody && sim) {
             const phase = event.nextState || event.state;
-            const toTerminal =
+            const toWorkDesk =
               event.target === "desk-terminal" ||
               event.target === "desk-research" ||
               event.target === "desk-compose";
@@ -695,13 +714,12 @@ function setup() {
               phase === "coding" ||
               phase === "review" ||
               phase === "blocked" ||
-              (event.state === "walk" && toTerminal);
+              (event.state === "walk" && toWorkDesk);
             if (working) {
-              // Real job owns Ollie — no idle theater for primary
-              sim.notifyLiveBusy();
+              // Real job owns this live agent
+              sim.notifyLiveBusy(event.agentId);
             } else if (phase === "break" || phase === "idle") {
-              // Quiet again — soft idle resumes after a short dwell
-              sim.notifyLiveIdle(10000);
+              sim.notifyLiveIdle(event.agentId, 10000);
             }
           }
           onEvent(event);
@@ -733,7 +751,9 @@ function setup() {
         office,
         feedMode,
         startCoffeeRun,
-        canGetCoffee: () => canGetCoffee(getPrimaryAgent()),
+        canGetCoffee: () => Boolean(pickCoffeeAgent()),
+        pickCoffeeAgent,
+        liveIds: [...liveIdSet],
         stop: () => {
           feedHandle?.stop();
           sim?.stop();
