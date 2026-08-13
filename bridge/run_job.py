@@ -22,7 +22,7 @@ from office_status import OfficeStatus  # noqa: E402
 
 log = logging.getLogger("run-job")
 
-DEFAULT_MODEL = "huihui_ai/qwen3-abliterated:8b-v2"
+DEFAULT_MODEL = "ollie"
 OLLAMA = "http://127.0.0.1:11434"
 
 

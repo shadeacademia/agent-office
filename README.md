@@ -103,6 +103,19 @@ If `telegram-openwebui-bridge` loads `bridge/office_status.py`, it can post:
 
 Disable with `OFFICE_STATUS=0`. Token from `.local/ingest_token`, not from the bot config.
 
+### Open WebUI (Ollie)
+
+Native UI chats do **not** go through the Telegram bridge. A global filter (`office_status`, seeded by `local-ai-stack_v2` install-02) posts the same circuit:
+
+| When | Public phase |
+|------|----------------|
+| New chat completion (Ollie / 4b-Claude) | Got a prompt (Terminal) |
+| Web search feature on | Researching… |
+| After dwell | Writing a reply… |
+| Completion finishes | Replied — see chat → On break |
+
+Telegram sets `X-Office-Driver: telegram` so the filter does not double-post. Title/tag background tasks are ignored. Disable via the filter’s Valves in Open WebUI (Admin → Functions).
+
 ### Grok Build (Grok body)
 
 Same circuit as Ollie, posted as `agentId: "grok"`:
