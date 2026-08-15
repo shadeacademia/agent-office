@@ -616,7 +616,7 @@ function setup() {
         "desk-research",
         "desk-compose",
       ]);
-      const WATCHDOG_MS = 14000;
+      const WATCHDOG_MS = 45000;
 
       /** If a live job never sends Break, hop home instead of sitting at Compose. */
       function maybeWatchdogHome(agent, now) {
