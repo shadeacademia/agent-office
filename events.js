@@ -78,7 +78,7 @@ export function normalizeEvent(raw, deskById = {}) {
 
 /**
  * Poll /api/events (or a static JSON URL).
- * Applies snapshot once, then only events newer than the last seen ts.
+ * Cursor is per-agent so a busy Grok feed cannot hide Ansel's next hop.
  */
 export function createJsonPollSource({
   url = "/api/events",
@@ -88,18 +88,27 @@ export function createJsonPollSource({
   onStatus,
 }) {
   const deskById = Object.fromEntries(desks.map((d) => [d.id, d]));
-  let lastTs = 0;
+  /** @type {Record<string, number>} */
+  const lastTsByAgent = {};
+  /** @type {Record<string, number>} */
+  const lastJobByAgent = {};
   let hydrated = false;
   let timer = null;
   let stopped = false;
   let failCount = 0;
 
+  function remember(ev) {
+    const id = ev.agentId;
+    lastTsByAgent[id] = Math.max(lastTsByAgent[id] || 0, ev.ts || 0);
+    const job = typeof ev.job === "number" ? ev.job : 0;
+    if (job) lastJobByAgent[id] = Math.max(lastJobByAgent[id] || 0, job);
+  }
+
   async function tick() {
     if (stopped) return;
     try {
       const sep = url.includes("?") ? "&" : "?";
-      const q = hydrated && lastTs > 0 ? `${sep}since=${lastTs}&t=${Date.now()}` : `${sep}t=${Date.now()}`;
-      const res = await fetch(`${url}${q}`, { cache: "no-store" });
+      const res = await fetch(`${url}${sep}t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
@@ -120,7 +129,7 @@ export function createJsonPollSource({
             const ev = normalizeEvent({ ...parked, teleport: true }, deskById);
             if (ev) {
               onEvent(ev);
-              if (ev.ts > lastTs) lastTs = ev.ts;
+              remember(ev);
             }
           }
           onStatus?.({ ok: true, mode: "live", detail: "snapshot" });
@@ -129,7 +138,7 @@ export function createJsonPollSource({
             const ev = normalizeEvent(raw, deskById);
             if (ev) {
               onEvent(ev);
-              if (ev.ts > lastTs) lastTs = ev.ts;
+              remember(ev);
             }
           }
           onStatus?.({ ok: true, mode: "live", detail: `history ${list.length}` });
@@ -144,11 +153,29 @@ export function createJsonPollSource({
       for (const raw of list) {
         const ev = normalizeEvent(raw, deskById);
         if (!ev) continue;
-        if (ev.ts <= lastTs) continue;
+        const prev = lastTsByAgent[ev.agentId] || 0;
+        if (ev.ts <= prev) continue;
         onEvent(ev);
-        lastTs = Math.max(lastTs, ev.ts);
+        remember(ev);
         n += 1;
       }
+
+      // If we missed a hop (Grok flooded the ring), catch up from snapshot.
+      if (snapshot && typeof snapshot === "object") {
+        for (const raw of Object.values(snapshot)) {
+          const ev = normalizeEvent(raw, deskById);
+          if (!ev) continue;
+          const snapJob = typeof ev.job === "number" ? ev.job : 0;
+          const seenJob = lastJobByAgent[ev.agentId] || 0;
+          const seenTs = lastTsByAgent[ev.agentId] || 0;
+          if (snapJob > seenJob || ev.ts > seenTs) {
+            onEvent(ev);
+            remember(ev);
+            n += 1;
+          }
+        }
+      }
+
       failCount = 0;
       onStatus?.({
         ok: true,

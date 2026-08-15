@@ -680,7 +680,7 @@ function setup() {
             const dx = agent.targetX - agent.x;
             const dy = agent.targetY - agent.y;
             const dist = Math.hypot(dx, dy);
-            if (dist < 4) {
+            if (dist < 4 || (agent.legStartedAt && now - agent.legStartedAt > 15000)) {
               agent.x = agent.targetX;
               agent.y = agent.targetY;
               agent.state = agent.nextState || "idle";

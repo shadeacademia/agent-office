@@ -13,6 +13,7 @@
  */
 
 const KV_KEY = "ring";
+const snapKey = (agentId) => `snap:${agentId}`;
 const MAX_EVENTS = 50;
 const MAX_MESSAGE = 120;
 const ALLOWED_AGENTS = new Set(["ollie", "grok", "ansel", "nova", "byte"]);
@@ -98,6 +99,38 @@ async function writeRing(env, events) {
   await env.EVENTS.put(KV_KEY, JSON.stringify(events.slice(-MAX_EVENTS)));
 }
 
+async function writeAgentSnaps(env, events) {
+  const latest = {};
+  for (const e of events) {
+    const prev = latest[e.agentId];
+    const pj = typeof prev?.job === "number" ? prev.job : 0;
+    const ej = typeof e.job === "number" ? e.job : 0;
+    if (!prev || ej > pj || (ej === pj && e.ts >= prev.ts)) latest[e.agentId] = e;
+  }
+  await Promise.all(
+    Object.entries(latest).map(([id, ev]) =>
+      env.EVENTS.put(snapKey(id), JSON.stringify(ev)),
+    ),
+  );
+}
+
+async function readSnapshot(env, ring) {
+  const fromRing = snapshotFrom(ring);
+  const extras = await Promise.all(
+    [...ALLOWED_AGENTS].map((id) => env.EVENTS.get(snapKey(id), "json")),
+  );
+  for (const ev of extras) {
+    if (!ev || !ev.agentId) continue;
+    const prev = fromRing[ev.agentId];
+    const pj = typeof prev?.job === "number" ? prev.job : 0;
+    const ej = typeof ev.job === "number" ? ev.job : 0;
+    if (!prev || ej > pj || (ej === pj && ev.ts >= (prev.ts || 0))) {
+      fromRing[ev.agentId] = ev;
+    }
+  }
+  return fromRing;
+}
+
 export async function onRequestOptions() {
   return json({ ok: true });
 }
@@ -119,12 +152,13 @@ export async function onRequestGet(context) {
   const since = Number(url.searchParams.get("since") || 0);
   const ring = await readRing(env);
   const events = since > 0 ? ring.filter((e) => e.ts > since) : ring;
+  const snapshot = await readSnapshot(env, ring);
 
   return json({
     ok: true,
     mode: "live",
     events,
-    snapshot: snapshotFrom(ring),
+    snapshot,
     count: ring.length,
   });
 }
@@ -172,11 +206,12 @@ export async function onRequestPost(context) {
   const ring = await readRing(env);
   const next = [...ring, ...accepted].slice(-MAX_EVENTS);
   await writeRing(env, next);
+  await writeAgentSnaps(env, accepted);
 
   return json({
     ok: true,
     accepted: accepted.length,
     events: accepted,
-    snapshot: snapshotFrom(next),
+    snapshot: await readSnapshot(env, next),
   });
 }
