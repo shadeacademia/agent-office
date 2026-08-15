@@ -27,6 +27,11 @@ const STATE_SPRITE = {
 const SPEED = 130; // px per second
 /** Min time (ms) to keep walking toward a desk before a queued leg may start */
 const MIN_LEG_MS = 2200;
+const WORK_DESKS = new Set([
+  "desk-terminal",
+  "desk-research",
+  "desk-compose",
+]);
 /** Dwell at coffee machine before walking back to break */
 const COFFEE_DWELL_MS = 2500;
 /** Horizontal gap between agents sharing a station */
@@ -236,6 +241,8 @@ function setup() {
           hopLegLen: 0,
           lastLiveTs: 0,
           job: 0,
+          /** Latest log line for this job is already lounge — skip leftover work desks. */
+          logLounge: false,
           /** null | "to-machine" | "at-machine" | "to-break" */
           coffeePhase: null,
           coffeeUntil: 0,
@@ -475,6 +482,20 @@ function setup() {
         return typeof event.job === "number" ? event.job : 0;
       }
 
+      function isLoungeEvent(event) {
+        if (!event || event.coffeeLeg) return false;
+        const phase = event.nextState || event.state;
+        return event.target === "desk-break" && phase === "break";
+      }
+
+      /** Log already says lounge — drop queued Terminal/Research/Compose. */
+      function dropWorkDeskLegs(agent) {
+        agent.eventQueue = agent.eventQueue.filter((e) => {
+          if (e.coffeeLeg) return true;
+          return !WORK_DESKS.has(e.target);
+        });
+      }
+
       /** Drop queued legs from an older job when a newer one starts. */
       function dropOlderJobs(agent, job) {
         if (!job) return;
@@ -490,8 +511,12 @@ function setup() {
         if (!agent) return;
         const incomingJob = incomingJobOf(event);
         if (incomingJob && agent.job && incomingJob < agent.job) return;
-        if (incomingJob > agent.job) dropOlderJobs(agent, incomingJob);
+        if (incomingJob > agent.job) {
+          agent.logLounge = false;
+          dropOlderJobs(agent, incomingJob);
+        }
         if (incomingJob) agent.job = incomingJob;
+        if (isLoungeEvent(event)) agent.logLounge = true;
         resolveTargets(event);
 
         // Non-coffee events cancel an in-progress coffee run (e.g. live job)
@@ -608,9 +633,15 @@ function setup() {
         // A newer job cuts the current hop short. Finishing the old Break
         // walk is what made Terminal → Break → Compose on the next prompt.
         if (incomingJob && incomingJob > agent.job) {
+          agent.logLounge = false;
           dropOlderJobs(agent, incomingJob);
           applyEventNow(event);
           return;
+        }
+
+        if (isLoungeEvent(event)) {
+          agent.logLounge = true;
+          dropWorkDeskLegs(agent);
         }
 
         const moving =
@@ -631,20 +662,32 @@ function setup() {
       }
 
       function drainQueue(agent, now) {
-        if (!agent.eventQueue.length) return;
         if (agent.state === "walk") return;
-        // Brief dwell at desk so Terminal isn't a 1-frame stop
         if (agent.legStartedAt && now - agent.legStartedAt < MIN_LEG_MS) return;
+        if (agent.logLounge) dropWorkDeskLegs(agent);
+        if (!agent.eventQueue.length) {
+          if (
+            agent.logLounge &&
+            WORK_DESKS.has(agent.stationId) &&
+            !agent.coffeePhase
+          ) {
+            applyEventNow({
+              ts: Date.now(),
+              agentId: agent.id,
+              type: "status",
+              state: "walk",
+              nextState: "break",
+              target: "desk-break",
+              message: "Replied — see desk",
+              job: agent.job,
+            });
+          }
+          return;
+        }
         const next = agent.eventQueue.shift();
-        // Already in feed when queued
         applyEventNow(next, { skipFeed: true });
       }
 
-      const WORK_DESKS = new Set([
-        "desk-terminal",
-        "desk-research",
-        "desk-compose",
-      ]);
       const WATCHDOG_MS = 180000;
 
       /** If a live job never sends Break, hop home instead of sitting at Compose. */
