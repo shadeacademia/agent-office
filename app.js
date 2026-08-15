@@ -235,6 +235,7 @@ function setup() {
           legStartedAt: 0,
           hopLegLen: 0,
           lastLiveTs: 0,
+          job: 0,
           /** null | "to-machine" | "at-machine" | "to-break" */
           coffeePhase: null,
           coffeeUntil: 0,
@@ -474,6 +475,9 @@ function setup() {
       function applyEventNow(event, { skipFeed = false } = {}) {
         const agent = agents[event.agentId];
         if (!agent) return;
+        const incomingJob = typeof event.job === "number" ? event.job : 0;
+        if (incomingJob && agent.job && incomingJob < agent.job) return;
+        if (incomingJob) agent.job = incomingJob;
         resolveTargets(event);
 
         // Non-coffee events cancel an in-progress coffee run (e.g. live job)

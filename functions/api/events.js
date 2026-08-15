@@ -68,6 +68,7 @@ function sanitizeOne(raw) {
   if (typeof raw.targetX === "number") event.targetX = raw.targetX;
   if (typeof raw.targetY === "number") event.targetY = raw.targetY;
   if (raw.teleport) event.teleport = true;
+  if (typeof raw.job === "number" && Number.isFinite(raw.job)) event.job = raw.job;
 
   return event;
 }
@@ -75,7 +76,14 @@ function sanitizeOne(raw) {
 function snapshotFrom(events) {
   const snap = {};
   for (const e of events) {
-    snap[e.agentId] = e;
+    const prev = snap[e.agentId];
+    if (!prev) {
+      snap[e.agentId] = e;
+      continue;
+    }
+    const pj = typeof prev.job === "number" ? prev.job : 0;
+    const ej = typeof e.job === "number" ? e.job : 0;
+    if (ej > pj || (ej === pj && e.ts >= prev.ts)) snap[e.agentId] = e;
   }
   return snap;
 }

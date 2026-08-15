@@ -72,6 +72,7 @@ export function normalizeEvent(raw, deskById = {}) {
     targetY: typeof e.targetY === "number" ? e.targetY : desk?.y,
     nextState,
     teleport: Boolean(e.teleport),
+    job: typeof e.job === "number" ? e.job : 0,
   };
 }
 
