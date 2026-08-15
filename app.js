@@ -234,6 +234,7 @@ function setup() {
           eventQueue: [],
           legStartedAt: 0,
           hopLegLen: 0,
+          lastLiveTs: 0,
           /** null | "to-machine" | "at-machine" | "to-break" */
           coffeePhase: null,
           coffeeUntil: 0,
@@ -518,6 +519,9 @@ function setup() {
 
         agent.message = event.message || agent.message;
         agent.nextState = event.nextState || event.state || "idle";
+        if (!event.idle) {
+          agent.lastLiveTs = event.ts || Date.now();
+        }
 
         if (event.state === "walk" || event.state === "idle") {
           agent.state = event.state;
@@ -607,6 +611,35 @@ function setup() {
         applyEventNow(next, { skipFeed: true });
       }
 
+      const WORK_DESKS = new Set([
+        "desk-terminal",
+        "desk-research",
+        "desk-compose",
+      ]);
+      const WATCHDOG_MS = 14000;
+
+      /** If a live job never sends Break, hop home instead of sitting at Compose. */
+      function maybeWatchdogHome(agent, now) {
+        if (!liveIdSet.has(agent.id)) return;
+        if (agent.coffeePhase) return;
+        if (agent.eventQueue.length) return;
+        if (agent.state === "walk") return;
+        if (!WORK_DESKS.has(agent.stationId)) return;
+        if (agent.state !== "coding" && agent.state !== "review") return;
+        const started = agent.lastLiveTs || 0;
+        if (!started || Date.now() - started < WATCHDOG_MS) return;
+        agent.lastLiveTs = Date.now();
+        onEvent({
+          ts: Date.now(),
+          agentId: agent.id,
+          type: "status",
+          state: "walk",
+          nextState: "break",
+          target: "desk-break",
+          message: "On break",
+        });
+      }
+
       // Animation loop
       let last = performance.now();
       function frame(now) {
@@ -639,6 +672,7 @@ function setup() {
             }
           } else {
             drainQueue(agent, now);
+            maybeWatchdogHome(agent, now);
           }
 
           // Coffee legs advance on arrival / dwell (same frame as walk completes)
