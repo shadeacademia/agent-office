@@ -18,6 +18,32 @@
 
 const STATES = new Set(["idle", "walk", "coding", "review", "break", "blocked"]);
 
+const WORK_DESKS = new Set(["desk-terminal", "desk-research", "desk-compose"]);
+/** Live snapshot older than this is treated as already finished — hop home. */
+const STALE_JOB_MS = 25_000;
+
+function parkIfStale(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  const ts = typeof raw.ts === "number" ? raw.ts : 0;
+  const age = Date.now() - ts;
+  const atWork = WORK_DESKS.has(String(raw.target || ""));
+  const working =
+    raw.nextState === "coding" ||
+    raw.nextState === "review" ||
+    raw.state === "coding" ||
+    raw.state === "review";
+  if (atWork && working && age > STALE_JOB_MS) {
+    return {
+      ...raw,
+      target: "desk-break",
+      state: "break",
+      nextState: "break",
+      message: "On break",
+    };
+  }
+  return raw;
+}
+
 /** @param {unknown} raw */
 export function normalizeEvent(raw, deskById = {}) {
   if (!raw || typeof raw !== "object") return null;
@@ -89,7 +115,8 @@ export function createJsonPollSource({
         hydrated = true;
         if (snapshot && typeof snapshot === "object" && Object.keys(snapshot).length) {
           for (const raw of Object.values(snapshot)) {
-            const ev = normalizeEvent({ ...raw, teleport: true }, deskById);
+            const parked = parkIfStale(raw);
+            const ev = normalizeEvent({ ...parked, teleport: true }, deskById);
             if (ev) {
               onEvent(ev);
               if (ev.ts > lastTs) lastTs = ev.ts;
