@@ -471,12 +471,26 @@ function setup() {
         }
       }
 
+      function incomingJobOf(event) {
+        return typeof event.job === "number" ? event.job : 0;
+      }
+
+      /** Drop queued legs from an older job when a newer one starts. */
+      function dropOlderJobs(agent, job) {
+        if (!job) return;
+        agent.eventQueue = agent.eventQueue.filter((e) => {
+          const j = incomingJobOf(e);
+          return !j || j >= job;
+        });
+      }
+
       /** Apply an event to the agent immediately (no queue). */
       function applyEventNow(event, { skipFeed = false } = {}) {
         const agent = agents[event.agentId];
         if (!agent) return;
-        const incomingJob = typeof event.job === "number" ? event.job : 0;
+        const incomingJob = incomingJobOf(event);
         if (incomingJob && agent.job && incomingJob < agent.job) return;
+        if (incomingJob > agent.job) dropOlderJobs(agent, incomingJob);
         if (incomingJob) agent.job = incomingJob;
         resolveTargets(event);
 
@@ -582,8 +596,19 @@ function setup() {
         if (!agent) return;
         resolveTargets(event);
 
+        const incomingJob = incomingJobOf(event);
+        if (incomingJob && agent.job && incomingJob < agent.job) return;
+
         if (event.teleport) {
           agent.eventQueue = [];
+          applyEventNow(event);
+          return;
+        }
+
+        // A newer job cuts the current hop short. Finishing the old Break
+        // walk is what made Terminal → Break → Compose on the next prompt.
+        if (incomingJob && incomingJob > agent.job) {
+          dropOlderJobs(agent, incomingJob);
           applyEventNow(event);
           return;
         }
@@ -620,7 +645,7 @@ function setup() {
         "desk-research",
         "desk-compose",
       ]);
-      const WATCHDOG_MS = 90000;
+      const WATCHDOG_MS = 180000;
 
       /** If a live job never sends Break, hop home instead of sitting at Compose. */
       function maybeWatchdogHome(agent, now) {

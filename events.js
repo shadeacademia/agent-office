@@ -20,7 +20,7 @@ const STATES = new Set(["idle", "walk", "coding", "review", "break", "blocked"])
 
 const WORK_DESKS = new Set(["desk-terminal", "desk-research", "desk-compose"]);
 /** Live snapshot older than this is treated as already finished — hop home. */
-const STALE_JOB_MS = 25_000;
+const STALE_JOB_MS = 180_000;
 
 function parkIfStale(raw) {
   if (!raw || typeof raw !== "object") return raw;
