@@ -15,7 +15,7 @@
 const KV_KEY = "ring";
 const MAX_EVENTS = 50;
 const MAX_MESSAGE = 120;
-const ALLOWED_AGENTS = new Set(["ollie", "grok", "nova", "byte"]);
+const ALLOWED_AGENTS = new Set(["ollie", "grok", "ansel", "nova", "byte"]);
 const STATES = new Set(["idle", "walk", "coding", "review", "break", "blocked"]);
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -157,7 +157,7 @@ export async function onRequestPost(context) {
     return json({
       ok: false,
       error: "no_valid_events",
-      hint: "Need agentId in ollie|grok|nova|byte and a short public message.",
+      hint: "Need agentId in ollie|grok|ansel|nova|byte and a short public message.",
     }, 400);
   }
 

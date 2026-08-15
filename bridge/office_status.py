@@ -24,7 +24,7 @@ _LOCAL = _ROOT / ".local"
 
 DEFAULT_URL = "https://office.shadeacademia.net"
 DEFAULT_AGENT_ID = "ollie"
-ALLOWED_AGENTS = frozenset({"ollie", "grok", "nova", "byte"})
+ALLOWED_AGENTS = frozenset({"ollie", "grok", "ansel", "nova", "byte"})
 # Back-compat alias
 AGENT_ID = DEFAULT_AGENT_ID
 

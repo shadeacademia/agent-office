@@ -17,6 +17,15 @@
     "live": true
   },
   {
+    "id": "ansel",
+    "name": "Ansel",
+    "role": "Desk companion",
+    "color": "#fbcfe8",
+    "homeDesk": "desk-break",
+    "live": true,
+    "gait": "hop"
+  },
+  {
     "id": "nova",
     "name": "Nova",
     "role": "Ambient",

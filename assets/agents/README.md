@@ -17,7 +17,8 @@ Paths: `assets/agents/{agentId}-{stem}.png` (48×48, transparent).
 | Agent | Color | Role |
 |-------|-------|------|
 | `ollie` | cyan `#7dd3fc` | Primary (real jobs + break) |
-| `grok` | violet `#c4b5fd` | Visiting AI (ambient) |
+| `grok` | violet `#c4b5fd` | Grok Build (live) |
+| `ansel` | pink `#fbcfe8` | Desk companion — hops between stations |
 | `nova` | pink `#f9a8d4` | Ambient |
 | `byte` | green `#86efac` | Ambient |
 

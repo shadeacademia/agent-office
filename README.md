@@ -14,6 +14,7 @@ Portrait office with four stations and a coffee machine:
 |-----|------|
 | **Ollie** | Local LLM — real jobs from Telegram / Open WebUI bridge; stays on break when quiet |
 | **Grok** | Grok Build — same circuit, driven by local hooks while you use Grok |
+| **Ansel** | Desk companion — hops the circuit when you talk to the overlay |
 | **Nova** / **Byte** | Ambient cast so the floor isn’t empty |
 
 **Get coffee** (header): sends a live agent on break (Ollie first, else Grok) to the machine. Ambient agents may visit coffee on their own; live agents do not auto-wander.

@@ -233,6 +233,7 @@ function setup() {
           /** Live feed can fire phases faster than walk animation — queue legs */
           eventQueue: [],
           legStartedAt: 0,
+          hopLegLen: 0,
           /** null | "to-machine" | "at-machine" | "to-break" */
           coffeePhase: null,
           coffeeUntil: 0,
@@ -389,7 +390,7 @@ function setup() {
           coffeeBtn.title = `Send ${agent.name} to the coffee machine`;
         } else {
           coffeeBtn.title =
-            "Only available while a live agent (Ollie / Grok) is on break";
+            "Only available while a live agent (Ollie / Grok / Ansel) is on break";
         }
       }
 
@@ -537,6 +538,10 @@ function setup() {
 
         if (agent.state === "walk") {
           agent.legStartedAt = performance.now();
+          agent.hopLegLen = Math.hypot(
+            (agent.targetX ?? agent.x) - agent.x,
+            (agent.targetY ?? agent.y) - agent.y,
+          );
         }
 
         if (event.message) {
@@ -546,7 +551,11 @@ function setup() {
         }
 
         const labelState = agent.state === "walk" ? agent.nextState : agent.state;
-        agent.rosterStatus.textContent = STATE_LABEL[labelState] || labelState;
+        const labelText =
+          agent.state === "walk" && (agent.gait === "hop" || agent.id === "ansel")
+            ? "Hopping"
+            : STATE_LABEL[labelState] || labelState;
+        agent.rosterStatus.textContent = labelText;
         agent.rosterStatus.dataset.state = labelState;
         agent.node.dataset.state = agent.state;
         setAgentSprite(agent, agent.state);
@@ -643,8 +652,26 @@ function setup() {
           const yMax = b.yMax ?? Math.round(office.height * 0.75);
           agent.x = clamp(agent.x, xMin, xMax);
           agent.y = clamp(agent.y, yMin, yMax);
+          let drawY = agent.y;
+          if (
+            (agent.gait === "hop" || agent.id === "ansel") &&
+            agent.state === "walk" &&
+            agent.hopLegLen > 4
+          ) {
+            const remaining = Math.hypot(
+              (agent.targetX ?? agent.x) - agent.x,
+              (agent.targetY ?? agent.y) - agent.y,
+            );
+            const traveled = Math.max(0, agent.hopLegLen - remaining);
+            const hopLen = 42;
+            const phase = (traveled % hopLen) / hopLen;
+            drawY = agent.y - Math.sin(Math.PI * phase) * 16;
+            agent.node.classList.add("hopping");
+          } else {
+            agent.node.classList.remove("hopping");
+          }
           agent.node.style.left = `${agent.x}px`;
-          agent.node.style.top = `${agent.y}px`;
+          agent.node.style.top = `${drawY}px`;
           // Painter’s algorithm: lower on floor draws above
           agent.node.style.zIndex = String(10 + Math.floor(agent.y));
 
